@@ -11,10 +11,10 @@ var Y = 2.5;
 var Z = 3;
 
 var Building = function(parent, x, y) {
-  this.noiseGen = new FastSimplexNoise({
-    frequency: 0.14,
-    octaves: 16
-  });
+  this.amplitude = 1;
+  this.frequency = 0.14;
+  this.octaves = 16;
+  this.persistence = 0.5;
 
   this.group = new THREE.Group();
   this.group.position.x = x;
@@ -24,18 +24,23 @@ var Building = function(parent, x, y) {
 };
 
 Building.prototype.generate = function() {
-  this.noiseGen = new FastSimplexNoise(_.pick(this.noiseGen, 'frequency', 'octaves'));
+  this.noiseGen = new FastSimplexNoise({ 
+    frequency: this.frequency, 
+    octaves: this.octaves
+  });
+
   this.group.remove.apply(this.group, this.group.children);
 
-  for(var x = -2; x <= 2; x++) {
+  for(var x = -3; x <= 3; x++) {
     for(var y = 0; y <= 3; y++) {
-      for(var z = -2; z <= 2; z++) {
+      for(var z = -3; z <= 3; z++) {
         var voxel = new Voxel(this.noiseGen, x, y, z);
 
         // this._debugBox(voxel);
         this._setFloor(voxel);
         this._setRoof(voxel);
         this._setWalls(voxel);
+        this._setPillars(voxel);
       }
     }
   }
@@ -56,7 +61,17 @@ Building.prototype._setRoof = function(voxel) {
   var rotation = new THREE.Euler(0, 0, 0, 'XYZ');
 
   if(voxel.solid && !voxel.up) {
-    if(!voxel.south) {
+    if(!voxel.north && !voxel.east && !voxel.south && !voxel.west) {
+      if(voxel.y > 1) {
+        roof = models.get('Roof_Point_Green_01');
+        position.y += 1.2;
+      }
+      else {
+        roof = models.get('Plate_Road_01');
+        position.y += 1.2;
+      }
+    }
+    else if(!voxel.south) {
       roof = models.get('Roof_Slant_Green_01');
       position.y += 1.2;
     }
@@ -101,6 +116,53 @@ Building.prototype._setWalls = function(voxel) {
 
       this.group.add(wall);
     }
+  }
+};
+
+Building.prototype._setPillars = function(voxel) {
+  if(voxel.solid) { return; }
+
+  var up = _.chain(5)
+    .times(_.identity)
+    .map(function(i) { 
+      return voxel.isSolid(voxel.x, voxel.y + i, voxel.z);
+    })
+    .some()
+    .value();
+
+  if(up) {
+    var pillar;
+    var pillars = {
+      northWest: { place: true, x: -1.2, z: -1.2 },
+      northEast: { place: true, x: -1.2, z: 1.2 },
+      southWest: { place: true, x: 1.2, z: -1.2 },
+      southEast: { place: true, x: 1.2, z: 1.2 }
+    };
+
+    if(voxel.north && voxel.west) {
+      pillars.northWest.place = false;
+    }
+    if(voxel.north && voxel.east) {
+      pillars.northEast.place = false;
+    }
+    if(voxel.south && voxel.west) {
+      pillars.southWest.place = false;
+    }
+    if(voxel.south && voxel.east) {
+      pillars.southEast.place = false;
+    }
+
+    _.each(pillars, function(value) {
+      if(!value.place) { 
+        return;
+      }
+
+      pillar = models.get('Wood_Pole_01');
+      pillar.position.x = voxel.x * X + value.x;
+      pillar.position.y = voxel.y * Y - 1.25;
+      pillar.position.z = voxel.z * Z + value.z;
+      this.group.add(pillar);
+    }, this);
   }
 };
 
