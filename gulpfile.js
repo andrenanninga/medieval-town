@@ -14,7 +14,8 @@ gulp.task('webserver', function() {
 });
 
 gulp.task('scripts', function() {
-  gulp.src('./src/js/app.js')
+  return gulp.src('./src/js/app.js')
+    .pipe(plumber())
     .pipe(browserify())
     .pipe(gulp.dest('./build/js'));
 });
@@ -25,9 +26,9 @@ gulp.task('html', function() {
     .pipe(gulp.dest('./build'));
 });
 
-
 gulp.task('reload', function() {
   return gulp.src('build/*.*')
+    .pipe(plumber())
     .pipe(connect.reload());
 });
 

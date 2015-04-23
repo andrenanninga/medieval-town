@@ -1,8 +1,11 @@
 'use strict';
 
-var _       = require('underscore');
-var THREE   = require('three');
-var objects = require('./objects');
+var _        = require('underscore');
+var THREE    = require('three');
+var Dat      = require('dat-gui');
+var models   = require('./models');
+
+var Building = require('./building/building');
 
 global.THREE = THREE;
 
@@ -10,21 +13,21 @@ require('./plugins/MTLLoader');
 require('./plugins/OBJMTLLoader');
 require('./plugins/OrbitControls');
 
-
 var scene = new THREE.Scene();
 var renderer = new THREE.WebGLRenderer();
+renderer.setSize( window.innerWidth, window.innerHeight );
+document.body.appendChild(renderer.domElement);
+
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.y = 10;
+camera.position.x = 5;
+camera.position.y = 5;
 
-var loader = new THREE.OBJMTLLoader();
+var controls = new THREE.OrbitControls(camera);
+controls.damping = 0.2;
 
-var lights = [
-  [10, 10, 10],
-  [10, 10, -10],
-  [-10, 10,  -10],
-  [-10, 10, 10],
-  [0, -10, 0]
-];
+models.load();
+
+var lights = [ [10, 10, 10], [10, 10, -10], [-10, 10,  -10], [-10, 10, 10], [0, -10, 0] ];
 
 for(var i = 0; i < 5; i++) {
   var directionalLight = new THREE.DirectionalLight( 0xffffff, 0.5 );
@@ -33,28 +36,14 @@ for(var i = 0; i < 5; i++) {
   scene.add( directionalLight );
 }
 
-var controls = new THREE.OrbitControls(camera);
-controls.damping = 0.2;
+var building = new Building(scene, 0, 0);
 
-renderer.setSize( window.innerWidth, window.innerHeight );
-document.body.appendChild(renderer.domElement);
-
-_.each(objects, function(object, i) {
-  var x = ((i % 10) * 5) - 25;
-  var z = (Math.floor(i / 10) * 5) - 15;
-
-  console.log(x, z);
-
-  loader.load(
-    'assets/models/' + object + '.obj',
-    'assets/models/' + object + '.mtl',
-    function(object) {
-      object.position.x = x;
-      object.position.z = z;
-      scene.add(object);
-    }
-  );
-});
+window.onload =function() {
+  var gui = new Dat.GUI();
+  gui.add(building.noiseGen, 'frequency').min(0).max(1).step(0.02);
+  gui.add(building.noiseGen, 'octaves').min(1).max(64).step(1);
+  gui.add(building, 'generate');
+};
 
 var render = function () {
   requestAnimationFrame(render);
