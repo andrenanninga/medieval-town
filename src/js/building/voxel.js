@@ -2,10 +2,12 @@
 
 var _ = require('underscore');
 
-var Voxel = function(isSolid, x, y, z) {
+var Voxel = function(parent, x, y, z) {
   var self = this;
 
-  this.isSolid = isSolid;
+  this.isSolid = _.bind(parent.isSolid, parent);
+  this.isBorder = _.bind(parent.isBorder, parent);
+  this.isOutside = _.bind(parent.isOutside, parent);
   this.x = x;
   this.y = y;
   this.z = z;
@@ -17,6 +19,9 @@ var Voxel = function(isSolid, x, y, z) {
   this.east = this.isSolid(x, y, z + 1);
   this.up = this.isSolid(x, y + 1, z);
   this.down = this.isSolid(x, y - 1, z);
+
+  this.border = this.isBorder(x, y, z);
+  this.outside = this.isOutside(x, y, z);
 
   this.ceiling = _.chain(25).times(_.identity)
     .map(function(i) { return self.isSolid(self.x, self.y + i, self.z); })

@@ -15,9 +15,9 @@ var Z = 3;
 var chance = new Chance();
 
 var colors = {
-  'Wood': ['#4C3A1E', '#403019', '#332714'],
+  'Wood': ['#4C3A1E', '#403019', '#332714', '#514534', '#46342D', '#2E302A'],
   'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577']
+  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B']
 };
 
 var Building = function(parent, x, y, width, height, depth) {
@@ -33,6 +33,8 @@ var Building = function(parent, x, y, width, height, depth) {
   this.shieldChance = 0.1;
 
   this.heightDampener = 4;
+
+  this.fenceChance = 0.3;
 
   this.showDebug = false;
 
@@ -65,6 +67,38 @@ Building.prototype.isSolid = function(x, y, z) {
   return this.noiseGen.get3DNoise(x, y, z) - y / this.heightDampener > 0; 
 };
 
+Building.prototype.isBorder = function(x, y, z) {
+  if(x === this.width / -2 || x === this.width / 2 - 1) {
+    return true;
+  }
+
+  if(z === this.depth / -2 || z === this.depth / 2 - 1) {
+    return true;
+  }
+
+  if(y === 0 || y === this.height - 1) {
+    return true;
+  }
+
+  return false;
+};
+
+Building.prototype.isOutside = function(x, y, z) {
+  if(x < this.width / -2 || x >= this.width / 2) {
+    return true;
+  }
+
+  if(z < this.depth / -2 || z >= this.depth / 2) {
+    return true;
+  }
+
+  if(y < 0 || y >= this.height) {
+    return true;
+  }
+
+  return false;
+};
+
 Building.prototype.generate = function() {
   var self = this;
 
@@ -90,10 +124,12 @@ Building.prototype.generate = function() {
     })
     .value();
 
+  var hasFence = Math.random() < this.fenceChance;
+
   for(var x = -this.width / 2; x < this.width / 2; x++) {
     for(var y = 0; y < this.height; y++) {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
-        var voxel = new Voxel(_.bind(this.isSolid, this), x, y, z);
+        var voxel = new Voxel(this, x, y, z);
 
         if(this.showDebug) {
           this._debugBox(voxel);
@@ -102,6 +138,10 @@ Building.prototype.generate = function() {
         this._setRoof(voxel);
         this._setWalls(voxel);
         this._setPillars(voxel);
+
+        if(hasFence) {
+          this._setFence(voxel);
+        }
       }
     }
   }
@@ -164,14 +204,24 @@ Building.prototype._setRoof = function(voxel) {
       roof = models.get('Roof_Straight_Green_01');
       position.y += 1.2;
     }
-    else if(!voxel.south) {
+    else if(!voxel.south && this.depth > this.width) {
       roof = models.get('Roof_Slant_Green_01');
       position.y += 1.2;
     }
-    else if(!voxel.north) {
+    else if(!voxel.north && this.depth > this.width) {
       roof = models.get('Roof_Slant_Green_01');
       position.y += 1.2;
       rotation.y = Math.PI;
+    }
+    else if(!voxel.east && this.depth <= this.width) {
+      roof = models.get('Roof_Slant_Green_01');
+      position.y += 1.2;
+      rotation.y = Math.PI + Math.PI / 2;
+    }
+    else if(!voxel.west && this.depth <= this.width) {
+      roof = models.get('Roof_Slant_Green_01');
+      position.y += 1.2;
+      rotation.y = Math.PI / 2;
     }
     else {
       roof = models.get('Roof_Flat_Green_01');
@@ -283,6 +333,35 @@ Building.prototype._setPillars = function(voxel) {
   }
 };
 
+Building.prototype._setFence = function(voxel) {
+  var material, geometry, mesh;
+
+  if(voxel.y === 0 && voxel.border && !voxel.solid && !voxel.ceiling) {
+    var fence;
+    var sides = [
+      [voxel.north, -1, 0, 0],
+      [voxel.south, 1, 0, Math.PI],
+      [voxel.west, 0, -1, Math.PI / -2], 
+      [voxel.east, 0, 1, Math.PI / 2]
+    ];
+
+    for(var i = 0; i < sides.length; i++) {
+      var side = sides[i];
+
+      if(voxel.isOutside(voxel.x + side[1], voxel.y, voxel.z + side[2]) && !side[0]) {
+        fence = models.get('Grey_Short_Wall_01');
+
+        fence.position.x = voxel.x * X + 1.25 * side[1];
+        fence.position.y = voxel.y * Y - 1.25;
+        fence.position.z = voxel.z * Z + 1.25 * side[2];
+        fence.rotation.y = side[3];
+
+        this.group.add(fence);
+      }
+    }
+  }
+}
+
 Building.prototype._debugBox = function(voxel) {
   var material, geometry, mesh;
 
@@ -299,7 +378,7 @@ Building.prototype._debugBox = function(voxel) {
   }
   else if(voxel.y === 0) {
     material = new THREE.MeshNormalMaterial({ wireframe: true });
-    geometry = new THREE.BoxGeometry(X, 0.1, Z);
+    geometry = new THREE.BoxGeometry(X, 0.0001, Z);
     mesh = new THREE.Mesh(geometry, material);
 
     mesh.position.x = voxel.x * X;
