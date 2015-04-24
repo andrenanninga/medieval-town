@@ -5,6 +5,7 @@ var connect     = require('gulp-connect');
 var plumber     = require('gulp-plumber');
 var browserify  = require('gulp-browserify');
 var runSequence = require('run-sequence');
+var ghPages     = require('gulp-gh-pages');
 
 gulp.task('webserver', function() {
   connect.server({
@@ -43,11 +44,16 @@ gulp.task('assets', function() {
 });
 
 gulp.task('build', function() {
-  runSequence(
+  return runSequence(
     'html',
     'scripts',
     'reload'
   );
+});
+
+gulp.task('deploy', 'build', function() {
+  return gulp.src('./build/**/*')
+    .pipe(ghPages());
 });
 
 gulp.task('default', ['assets', 'build', 'webserver', 'watch']);
