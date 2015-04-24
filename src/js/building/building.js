@@ -34,6 +34,8 @@ var Building = function(parent, x, y, width, height, depth) {
 
   this.heightDampener = 4;
 
+  this.showDebug = false;
+
   this.x = x;
   this.y = y;
   this.width = width;
@@ -93,7 +95,9 @@ Building.prototype.generate = function() {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
         var voxel = new Voxel(_.bind(this.isSolid, this), x, y, z);
 
-        // this._debugBox(voxel);
+        if(this.showDebug) {
+          this._debugBox(voxel);
+        }
         this._setFloor(voxel);
         this._setRoof(voxel);
         this._setWalls(voxel);
@@ -123,9 +127,9 @@ Building.prototype._setFloor = function(voxel) {
   var floor;
 
   if(voxel.y === 0 && !voxel.solid) {
-    floor = models.get('Plate_Road_01');
-    floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
-    this.group.add(floor);
+    // floor = models.get('Plate_Road_01');
+    // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
+    // this.group.add(floor);
   }
   else if(voxel.solid) {
     floor = models.get('Plate_Wood_01');
@@ -289,6 +293,17 @@ Building.prototype._debugBox = function(voxel) {
 
     mesh.position.x = voxel.x * X;
     mesh.position.y = voxel.y * Y;
+    mesh.position.z = voxel.z * Z;
+
+    this.group.add(mesh);
+  }
+  else if(voxel.y === 0) {
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, 0.1, Z);
+    mesh = new THREE.Mesh(geometry, material);
+
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y - Y / 2;
     mesh.position.z = voxel.z * Z;
 
     this.group.add(mesh);
