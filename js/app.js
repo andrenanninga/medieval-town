@@ -45564,7 +45564,7 @@ var Building = function(parent, x, y, width, height, depth) {
 
   this.heightDampener = 4;
 
-  this.fenceChance = 0.3;
+  this.fenceChance = 0.4;
 
   this.showDebug = false;
 
