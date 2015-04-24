@@ -12,9 +12,11 @@ require('./plugins/OBJMTLLoader');
 
 var cache = {};
 var loader = new THREE.OBJMTLLoader();
+global.cache = cache;
+global._ = _;
 
 exports.load = function() {
-  _.each(objects, function(objectName) {
+  _.each(objects, function(objectName, i) {
     loader.load(
       'assets/models/' + objectName + '.obj',
       'assets/models/' + objectName + '.mtl',

@@ -1,7 +1,7 @@
 # Blender MTL File: 'None'
 # Material Count: 3
 
-newmtl Dark_Stone.033
+newmtl Dark_Stone
 Ns 96.078431
 Ka 0.000000 0.000000 0.000000
 Kd 0.624314 0.627451 0.640000
@@ -10,7 +10,7 @@ Ni 1.000000
 d 1.000000
 illum 2
 
-newmtl Green_Roof.011
+newmtl Green_Roof
 Ns 96.078431
 Ka 0.000000 0.000000 0.000000
 Kd 0.216470 0.326274 0.320000
@@ -19,7 +19,7 @@ Ni 1.000000
 d 1.000000
 illum 2
 
-newmtl White.001
+newmtl White
 Ns 96.078431
 Ka 0.000000 0.000000 0.000000
 Kd 0.756078 0.759216 0.771765

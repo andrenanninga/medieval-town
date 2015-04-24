@@ -3,6 +3,7 @@
 var _                = require('underscore');
 var THREE            = require('three');
 var FastSimplexNoise = require('fast-simplex-noise');
+var tinycolor        = require('tinycolor2');
 var models           = require('../models');
 var Voxel            = require('./voxel');
 
@@ -10,11 +11,21 @@ var X = 3;
 var Y = 2.5;
 var Z = 3;
 
+var colors = {
+  'Wood': ['#8C6A38',  '#886F49', '#4C3A1E', '#403019', '#332714'],
+  'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
+  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577']
+};
+
 var Building = function(parent, x, y) {
   this.amplitude = 1;
-  this.frequency = 0.14;
+  this.frequency = 0.08;
   this.octaves = 16;
   this.persistence = 0.5;
+
+  this.roofPointChance = 0.6;
+  this.wallWindowChance = 0.4;
+  this.wallDoorChance = 0.2;
 
   this.group = new THREE.Group();
   this.group.position.x = x;
@@ -24,12 +35,29 @@ var Building = function(parent, x, y) {
 };
 
 Building.prototype.generate = function() {
+  var self = this;
+
   this.noiseGen = new FastSimplexNoise({ 
     frequency: this.frequency, 
     octaves: this.octaves
   });
 
   this.group.remove.apply(this.group, this.group.children);
+  this.colors = _.chain(colors)
+    .mapObject(_.sample)
+    .mapObject(function(color) {
+      var rgb = tinycolor(color).toRgb();
+      
+      rgb.r /= 255;
+      rgb.g /= 255;
+      rgb.b /= 255;
+      rgb.hex = color;
+
+      return rgb;
+    })
+    .value();
+
+  console.log(this.colors);
 
   for(var x = -3; x <= 3; x++) {
     for(var y = 0; y <= 3; y++) {
@@ -44,12 +72,34 @@ Building.prototype.generate = function() {
       }
     }
   }
+
+  this.group.traverse(function(object) {
+    if(object.material && object.material.name.length > 0) {
+      var color = self.colors[object.material.name];
+      if(color) {
+        var material = object.material.clone();
+
+        material.color.r = color.r;
+        material.color.g = color.g;
+        material.color.b = color.b;
+
+        object.material = material;
+      }
+    }
+  });
 };
 
 
 Building.prototype._setFloor = function(voxel) {
-  if(voxel.solid) {
-    var floor = models.get('Plate_Wood_01');
+  var floor;
+
+  if(voxel.y === 0 && !voxel.solid) {
+    // floor = models.get('Plate_Road_01');
+    // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
+    // this.group.add(floor);
+  }
+  else if(voxel.solid) {
+    floor = models.get('Plate_Wood_01');
     floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
     this.group.add(floor);
   }
@@ -62,14 +112,24 @@ Building.prototype._setRoof = function(voxel) {
 
   if(voxel.solid && !voxel.up) {
     if(!voxel.north && !voxel.east && !voxel.south && !voxel.west) {
-      if(voxel.y > 1) {
+      if(Math.random() < this.roofPointChance) {
         roof = models.get('Roof_Point_Green_01');
         position.y += 1.2;
       }
       else {
-        roof = models.get('Plate_Road_01');
+        roof = models.get('Roof_Straight_Green_01');
         position.y += 1.2;
+        rotation.y = (Math.random() > 0.5) ? Math.PI / 2 : 0;
       }
+    }
+    else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
+      roof = models.get('Roof_Straight_Green_01');
+      position.y += 1.2;
+      rotation.y = Math.PI / 2;
+    }
+    else if(!voxel.west && !voxel.east && (voxel.north || voxel.south)) {
+      roof = models.get('Roof_Straight_Green_01');
+      position.y += 1.2;
     }
     else if(!voxel.south) {
       roof = models.get('Roof_Slant_Green_01');
@@ -96,6 +156,7 @@ Building.prototype._setRoof = function(voxel) {
 Building.prototype._setWalls = function(voxel) {
   if(!voxel.solid) { return; }  
   
+  var wall;
   var sides = [
     [voxel.north, -1, 0],
     [voxel.south, 1, 0],
@@ -107,7 +168,19 @@ Building.prototype._setWalls = function(voxel) {
     var side = sides[i];
 
     if(!side[0]) {
-      var wall = models.get('Wood_Wall_01');
+      if(voxel.y === 0 && Math.random() < this.wallDoorChance) {
+        wall = models.get('Wood_Door_Round_01');
+      }
+      else if(Math.random() < this.wallWindowChance) {
+        wall = models.get('Wood_Window_Round_01');
+      }
+      else {
+        wall = models.get(_.sample([
+          'Wood_Wall_01', 
+          'Wood_Wall_Double_Cross_01', 
+          'Wood_Wall_Cross_01'
+        ]));
+      }
 
       wall.position.x = voxel.x * X + 1.25 * side[1];
       wall.position.y = voxel.y * Y - 0.95;

@@ -20,7 +20,7 @@ Voxel.prototype.isSolid = function(x, y, z) {
     return false;
   }
 
-  return this.noiseGen.get3DNoise(x, y, z) - y / 8 > 0; 
+  return this.noiseGen.get3DNoise(x, y, z) - y / 4 > 0; 
 };
 
 module.exports = Voxel;

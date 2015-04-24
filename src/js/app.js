@@ -36,6 +36,15 @@ for(var i = 0; i < lights.length; i++) {
   scene.add( directionalLight );
 }
 
+// setTimeout(function() {
+//   var m = 0;
+//   for(var i = -2; i <= 2; i++) {
+//     for(var j = -2; j <= 2; j++) {
+//       new Building(scene, i*3*7, j*3*7).generate();
+//     }
+//   }
+// }, 4000);
+
 var building = new Building(scene, 0, 0);
 console.log(building);
 
@@ -45,6 +54,9 @@ window.onload =function() {
   gui.add(building, 'frequency').min(0.02).max(2).step(0.02);
   gui.add(building, 'octaves').min(1).max(64).step(1);
   gui.add(building, 'persistence').min(0).max(1);
+  gui.add(building, 'roofPointChance').min(0).max(1);
+  gui.add(building, 'wallDoorChance').min(0).max(1);
+  gui.add(building, 'wallWindowChance').min(0).max(1);
   gui.add(building, 'generate');
 };
 

@@ -12,6 +12,8 @@
     "dat-gui": "^0.5.0",
     "fast-simplex-noise": "^0.5.0",
     "three": "^0.70.0",
+    "tinycolor": "0.0.1",
+    "tinycolor2": "^1.1.2",
     "underscore": "^1.8.3"
   },
   "devDependencies": {

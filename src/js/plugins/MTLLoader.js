@@ -4,6 +4,8 @@
  * @author angelxuanchang
  */
 
+global.materials = {};
+
 THREE.MTLLoader = function( baseUrl, options, crossOrigin ) {
 
   this.baseUrl = baseUrl;
@@ -255,10 +257,10 @@ THREE.MTLLoader.MaterialCreator.prototype = {
 
   create: function ( materialName ) {
 
+    
     if ( this.materials[ materialName ] === undefined ) {
 
       this.createMaterial_( materialName );
-
     }
 
     return this.materials[ materialName ];
@@ -369,8 +371,11 @@ THREE.MTLLoader.MaterialCreator.prototype = {
     params.shininess = 0;
 
     this.materials[ materialName ] = new THREE.MeshPhongMaterial( params );
-    this.materials[ materialName ].wireframe = false;
+    // this.materials[ materialName ].wireframe = false;
     // this.materials[ materialName ].side = THREE.DoubleSide;
+
+    materials[materialName] = this.materials[materialName];
+
     return this.materials[ materialName ];
 
   },
