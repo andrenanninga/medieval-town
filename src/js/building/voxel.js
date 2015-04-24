@@ -1,7 +1,11 @@
 'use strict';
 
-var Voxel = function(noiseGen, x, y, z) {
-  this.noiseGen = noiseGen;
+var _ = require('underscore');
+
+var Voxel = function(isSolid, x, y, z) {
+  var self = this;
+
+  this.isSolid = isSolid;
   this.x = x;
   this.y = y;
   this.z = z;
@@ -13,14 +17,14 @@ var Voxel = function(noiseGen, x, y, z) {
   this.east = this.isSolid(x, y, z + 1);
   this.up = this.isSolid(x, y + 1, z);
   this.down = this.isSolid(x, y - 1, z);
-};
 
-Voxel.prototype.isSolid = function(x, y, z) {
-  if(x < -2 || x > 2 || y < 0 || y > 3 || z < -2 || z > 2) {
-    return false;
-  }
+  this.ceiling = _.chain(25).times(_.identity)
+    .map(function(i) { return self.isSolid(self.x, self.y + i, self.z); })
+    .some().value();
 
-  return this.noiseGen.get3DNoise(x, y, z) - y / 4 > 0; 
+  this.floor = _.chain(25).times(_.identity)
+    .map(function(i) { return self.isSolid(self.x, self.y - i, self.z); })
+    .some().value();
 };
 
 module.exports = Voxel;

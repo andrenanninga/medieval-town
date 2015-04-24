@@ -9,6 +9,7 @@
   "author": "Andre Nanninga <andre@nannin.ga>",
   "license": "ISC",
   "dependencies": {
+    "chance": "^0.7.3",
     "dat-gui": "^0.5.0",
     "fast-simplex-noise": "^0.5.0",
     "three": "^0.70.0",

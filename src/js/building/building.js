@@ -4,6 +4,7 @@ var _                = require('underscore');
 var THREE            = require('three');
 var FastSimplexNoise = require('fast-simplex-noise');
 var tinycolor        = require('tinycolor2');
+var Chance           = require('chance');
 var models           = require('../models');
 var Voxel            = require('./voxel');
 
@@ -11,21 +12,33 @@ var X = 3;
 var Y = 2.5;
 var Z = 3;
 
+var chance = new Chance();
+
 var colors = {
-  'Wood': ['#8C6A38',  '#886F49', '#4C3A1E', '#403019', '#332714'],
+  'Wood': ['#4C3A1E', '#403019', '#332714'],
   'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
   'Dark_Stone': ['#767D85', '#6A6B5F', '#838577']
 };
 
-var Building = function(parent, x, y) {
+var Building = function(parent, x, y, width, height, depth) {
   this.amplitude = 1;
   this.frequency = 0.08;
   this.octaves = 16;
   this.persistence = 0.5;
 
   this.roofPointChance = 0.6;
-  this.wallWindowChance = 0.4;
-  this.wallDoorChance = 0.2;
+  this.wallWindowChance = 0.3;
+  this.wallDoorChance = 0.1;
+  this.bannerChance = 0.1;
+  this.shieldChance = 0.1;
+
+  this.heightDampener = 4;
+
+  this.x = x;
+  this.y = y;
+  this.width = width;
+  this.height = height;
+  this.depth = depth;
 
   this.group = new THREE.Group();
   this.group.position.x = x;
@@ -34,12 +47,30 @@ var Building = function(parent, x, y) {
   parent.add(this.group);
 };
 
+Building.prototype.isSolid = function(x, y, z) {
+  if(x < this.width / -2 || x >= this.width / 2) {
+    return false;
+  }
+
+  if(z < this.depth / -2 || z >= this.depth / 2) {
+    return false;
+  }
+
+  if(y < 0 || y >= this.height) {
+    return false;
+  }
+
+  return this.noiseGen.get3DNoise(x, y, z) - y / this.heightDampener > 0; 
+};
+
 Building.prototype.generate = function() {
   var self = this;
 
   this.noiseGen = new FastSimplexNoise({ 
     frequency: this.frequency, 
-    octaves: this.octaves
+    octaves: this.octaves,
+    amplitude: this.amplitude,
+    persistence: this.persistence
   });
 
   this.group.remove.apply(this.group, this.group.children);
@@ -57,12 +88,10 @@ Building.prototype.generate = function() {
     })
     .value();
 
-  console.log(this.colors);
-
-  for(var x = -3; x <= 3; x++) {
-    for(var y = 0; y <= 3; y++) {
-      for(var z = -3; z <= 3; z++) {
-        var voxel = new Voxel(this.noiseGen, x, y, z);
+  for(var x = -this.width / 2; x < this.width / 2; x++) {
+    for(var y = 0; y < this.height; y++) {
+      for(var z = -this.depth / 2; z < this.depth / 2; z++) {
+        var voxel = new Voxel(_.bind(this.isSolid, this), x, y, z);
 
         // this._debugBox(voxel);
         this._setFloor(voxel);
@@ -94,9 +123,9 @@ Building.prototype._setFloor = function(voxel) {
   var floor;
 
   if(voxel.y === 0 && !voxel.solid) {
-    // floor = models.get('Plate_Road_01');
-    // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
-    // this.group.add(floor);
+    floor = models.get('Plate_Road_01');
+    floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
+    this.group.add(floor);
   }
   else if(voxel.solid) {
     floor = models.get('Plate_Wood_01');
@@ -158,10 +187,10 @@ Building.prototype._setWalls = function(voxel) {
   
   var wall;
   var sides = [
-    [voxel.north, -1, 0],
-    [voxel.south, 1, 0],
-    [voxel.west, 0, -1], 
-    [voxel.east, 0, 1]
+    [voxel.north, -1, 0, 0],
+    [voxel.south, 1, 0, Math.PI],
+    [voxel.west, 0, -1, Math.PI / -2], 
+    [voxel.east, 0, 1, Math.PI / 2]
   ];
 
   for(var i = 0; i < sides.length; i++) {
@@ -180,12 +209,31 @@ Building.prototype._setWalls = function(voxel) {
           'Wood_Wall_Double_Cross_01', 
           'Wood_Wall_Cross_01'
         ]));
+
+        if(Math.random() < this.bannerChance) {
+          var banner = models.get('Banner_Short_01');
+
+          banner.rotation.y = Math.PI / -2;
+          banner.position.x = -0.2;
+          banner.position.y = 0.1;
+
+          wall.add(banner);
+        }
+        else if(Math.random() < this.shieldChance) {
+          var shield = models.get('Shield_Green_01');
+
+          shield.rotation.y = Math.PI;
+          shield.position.x = -0.2;
+          shield.position.y = 0.8;
+
+          wall.add(shield);
+        }
       }
 
       wall.position.x = voxel.x * X + 1.25 * side[1];
       wall.position.y = voxel.y * Y - 0.95;
       wall.position.z = voxel.z * Z + 1.25 * side[2];
-      wall.rotation.y = side[2] * Math.PI / 2;
+      wall.rotation.y = side[3];
 
       this.group.add(wall);
     }
@@ -195,15 +243,7 @@ Building.prototype._setWalls = function(voxel) {
 Building.prototype._setPillars = function(voxel) {
   if(voxel.solid) { return; }
 
-  var up = _.chain(5)
-    .times(_.identity)
-    .map(function(i) { 
-      return voxel.isSolid(voxel.x, voxel.y + i, voxel.z);
-    })
-    .some()
-    .value();
-
-  if(up) {
+  if(voxel.ceiling) {
     var pillar;
     var pillars = {
       northWest: { place: true, x: -1.2, z: -1.2 },
@@ -240,17 +280,19 @@ Building.prototype._setPillars = function(voxel) {
 };
 
 Building.prototype._debugBox = function(voxel) {
-  if(!voxel.solid) { return; }  
+  var material, geometry, mesh;
 
-  var material = new THREE.MeshNormalMaterial({ wireframe: true });
-  var geometry = new THREE.BoxGeometry(X, Y, Z);
-  var mesh = new THREE.Mesh(geometry, material);
+  if(voxel.solid) {   
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, Y, Z);
+    mesh = new THREE.Mesh(geometry, material);
 
-  mesh.position.x = voxel.x * X;
-  mesh.position.y = voxel.y * Y;
-  mesh.position.z = voxel.z * Z;
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y;
+    mesh.position.z = voxel.z * Z;
 
-  this.group.add(mesh);
+    this.group.add(mesh);
+  }
 };
 
 module.exports = Building;
