@@ -51,7 +51,7 @@ gulp.task('build', function() {
   );
 });
 
-gulp.task('deploy', 'build', function() {
+gulp.task('deploy', ['assets', 'build'], function() {
   return gulp.src('./build/**/*')
     .pipe(ghPages());
 });

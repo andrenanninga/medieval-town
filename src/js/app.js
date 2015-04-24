@@ -39,16 +39,16 @@ for(var i = 0; i < lights.length; i++) {
 }
 
 // setTimeout(function() {
-//   for(var i = -2; i <= 2; i++) {
-//     for(var j = -2; j <= 2; j++) {
+//   for(var i = 0; i <= 0; i++) {
+//     for(var j = -5; j <= 5; j++) {
 //       var n = function() {
 //         return chance.integer({ min: -2, max: 1});
 //       }
 
-//       new Building(scene, i*3*6, j*3*6, 4+n(), 4+n(), 4+n()).generate();
+//       new Building(scene, i*3*3, j*3.5*2, 3, 2, 2).generate();
 //     }
 //   }
-// }, 4000);
+// }, 1000);
 
 var building = new Building(scene, 0, 0, 3, 3, 3);
 console.log(building);
