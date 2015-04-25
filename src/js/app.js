@@ -45,44 +45,44 @@ var light = new THREE.PointLight( 0xffffff, 0.8, 1000 );
 light.position.set(camera.position.x, camera.position.y, camera.position.z);
 scene.add(light);
 
-setTimeout(function() {
-  var n = function() {
-    return chance.integer({ min: -2, max: 1});
-  };
+// setTimeout(function() {
+//   var n = function() {
+//     return chance.integer({ min: -2, max: 1});
+//   };
 
-  for(var i = -2; i <= 2; i++) {
-    for(var j = -2; j <= 2; j++) {
-      new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
-    }
-  }
-}, 1000);
+//   for(var i = -2; i <= 2; i++) {
+//     for(var j = -2; j <= 2; j++) {
+//       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
+//     }
+//   }
+// }, 1000);
 
-// var building = new Building(scene, 0, 0, 3, 3, 3);
-// console.log(building);
+var building = new Building(scene, 0, 0, 3, 3, 3);
+console.log(building);
 
-// window.onload =function() {
-//   var gui = new Dat.GUI();
-//   gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
-//   gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
-//   gui.add(building, 'octaves').min(1).max(64).step(1);
-//   gui.add(building, 'persistence').min(0).max(1);
-//   gui.add(building, 'heightDampener').min(1).max(16);
+window.onload =function() {
+  var gui = new Dat.GUI();
+  gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
+  gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
+  gui.add(building, 'octaves').min(1).max(64).step(1);
+  gui.add(building, 'persistence').min(0).max(1);
+  gui.add(building, 'heightDampener').min(1).max(16);
   
-//   gui.add(building, 'width').min(1).max(15).step(1);
-//   gui.add(building, 'height').min(1).max(15).step(1);
-//   gui.add(building, 'depth').min(1).max(15).step(1);
+  gui.add(building, 'width').min(1).max(15).step(1);
+  gui.add(building, 'height').min(1).max(15).step(1);
+  gui.add(building, 'depth').min(1).max(15).step(1);
 
-//   gui.add(building, 'roofPointChance').min(0).max(1);
-//   gui.add(building, 'wallDoorChance').min(0).max(1);
-//   gui.add(building, 'wallWindowChance').min(0).max(1);
-//   gui.add(building, 'bannerChance').min(0).max(1);
-//   gui.add(building, 'shieldChance').min(0).max(1);
-//   gui.add(building, 'fenceChance').min(0).max(1);
+  gui.add(building, 'roofPointChance').min(0).max(1);
+  gui.add(building, 'wallDoorChance').min(0).max(1);
+  gui.add(building, 'wallWindowChance').min(0).max(1);
+  gui.add(building, 'bannerChance').min(0).max(1);
+  gui.add(building, 'shieldChance').min(0).max(1);
+  gui.add(building, 'fenceChance').min(0).max(1);
 
-//   gui.add(building, 'showDebug');
+  gui.add(building, 'showDebug');
 
-//   gui.add(building, 'generate');
-// };
+  gui.add(building, 'generate');
+};
 
 var render = function () {
   stats.begin();

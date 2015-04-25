@@ -239,12 +239,13 @@ Building.prototype._setRoof = function(voxel) {
 Building.prototype._setWalls = function(voxel) {
   if(!voxel.solid) { return; }  
   
+  var type;
   var wall;
   var sides = [
-    [voxel.north, -1, 0, 0],
-    [voxel.south, 1, 0, Math.PI],
-    [voxel.west, 0, -1, Math.PI / -2], 
-    [voxel.east, 0, 1, Math.PI / 2]
+    [voxel.north, -1, 0, Math.PI],
+    [voxel.south, 1, 0, 0],
+    [voxel.west, 0, -1, Math.PI / 2], 
+    [voxel.east, 0, 1, Math.PI / -2]
   ];
 
   for(var i = 0; i < sides.length; i++) {
@@ -258,26 +259,28 @@ Building.prototype._setWalls = function(voxel) {
         wall = models.get('Wood_Window_Round_01');
       }
       else {
-        wall = models.get(_.sample([
+
+        type = _.sample([
           'Wood_Wall_01', 
           'Wood_Wall_Double_Cross_01', 
           'Wood_Wall_Cross_01'
-        ]));
+        ]);
+        wall = models.get(type);
 
-        if(Math.random() < this.bannerChance) {
+        if(type === 'Wood_Wall_01' && Math.random() < this.bannerChance) {
           var banner = models.get('Banner_Short_01');
 
-          banner.rotation.y = Math.PI / -2;
-          banner.position.x = -0.2;
+          banner.rotation.y = Math.PI / 2;
+          banner.position.x = 0.2;
           banner.position.y = 0.1;
 
           wall.add(banner);
         }
-        else if(Math.random() < this.shieldChance) {
+        else if(type === 'Wood_Wall_01' && Math.random() < this.shieldChance) {
           var shield = models.get('Shield_Green_01');
 
-          shield.rotation.y = Math.PI;
-          shield.position.x = -0.2;
+          shield.rotation.y = 0; 
+          shield.position.x = 0.2;
           shield.position.y = 0.8;
 
           wall.add(shield);
