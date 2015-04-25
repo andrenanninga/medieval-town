@@ -46157,12 +46157,12 @@ light.position.set(camera.position.x, camera.position.y, camera.position.z);
 scene.add(light);
 
 setTimeout(function() {
+  var n = function() {
+    return chance.integer({ min: -2, max: 1});
+  };
+
   for(var i = -2; i <= 2; i++) {
     for(var j = -2; j <= 2; j++) {
-      var n = function() {
-        return chance.integer({ min: -2, max: 1});
-      }
-
       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
     }
   }
