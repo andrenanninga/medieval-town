@@ -4,8 +4,6 @@
  * @author angelxuanchang
  */
 
-global.materials = {};
-
 THREE.MTLLoader = function( baseUrl, options, crossOrigin ) {
 
   this.baseUrl = baseUrl;
@@ -373,8 +371,6 @@ THREE.MTLLoader.MaterialCreator.prototype = {
     this.materials[ materialName ] = new THREE.MeshPhongMaterial( params );
     // this.materials[ materialName ].wireframe = false;
     // this.materials[ materialName ].side = THREE.DoubleSide;
-
-    materials[materialName] = this.materials[materialName];
 
     return this.materials[ materialName ];
 

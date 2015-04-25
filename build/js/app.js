@@ -8253,6 +8253,156 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
 };
 
 },{}],9:[function(require,module,exports){
+/**
+ * @author mrdoob / http://mrdoob.com/
+ */
+
+var Stats = function () {
+
+	var startTime = Date.now(), prevTime = startTime;
+	var ms = 0, msMin = Infinity, msMax = 0;
+	var fps = 0, fpsMin = Infinity, fpsMax = 0;
+	var frames = 0, mode = 0;
+
+	var container = document.createElement( 'div' );
+	container.id = 'stats';
+	container.addEventListener( 'mousedown', function ( event ) { event.preventDefault(); setMode( ++ mode % 2 ) }, false );
+	container.style.cssText = 'width:80px;opacity:0.9;cursor:pointer';
+
+	var fpsDiv = document.createElement( 'div' );
+	fpsDiv.id = 'fps';
+	fpsDiv.style.cssText = 'padding:0 0 3px 3px;text-align:left;background-color:#002';
+	container.appendChild( fpsDiv );
+
+	var fpsText = document.createElement( 'div' );
+	fpsText.id = 'fpsText';
+	fpsText.style.cssText = 'color:#0ff;font-family:Helvetica,Arial,sans-serif;font-size:9px;font-weight:bold;line-height:15px';
+	fpsText.innerHTML = 'FPS';
+	fpsDiv.appendChild( fpsText );
+
+	var fpsGraph = document.createElement( 'div' );
+	fpsGraph.id = 'fpsGraph';
+	fpsGraph.style.cssText = 'position:relative;width:74px;height:30px;background-color:#0ff';
+	fpsDiv.appendChild( fpsGraph );
+
+	while ( fpsGraph.children.length < 74 ) {
+
+		var bar = document.createElement( 'span' );
+		bar.style.cssText = 'width:1px;height:30px;float:left;background-color:#113';
+		fpsGraph.appendChild( bar );
+
+	}
+
+	var msDiv = document.createElement( 'div' );
+	msDiv.id = 'ms';
+	msDiv.style.cssText = 'padding:0 0 3px 3px;text-align:left;background-color:#020;display:none';
+	container.appendChild( msDiv );
+
+	var msText = document.createElement( 'div' );
+	msText.id = 'msText';
+	msText.style.cssText = 'color:#0f0;font-family:Helvetica,Arial,sans-serif;font-size:9px;font-weight:bold;line-height:15px';
+	msText.innerHTML = 'MS';
+	msDiv.appendChild( msText );
+
+	var msGraph = document.createElement( 'div' );
+	msGraph.id = 'msGraph';
+	msGraph.style.cssText = 'position:relative;width:74px;height:30px;background-color:#0f0';
+	msDiv.appendChild( msGraph );
+
+	while ( msGraph.children.length < 74 ) {
+
+		var bar = document.createElement( 'span' );
+		bar.style.cssText = 'width:1px;height:30px;float:left;background-color:#131';
+		msGraph.appendChild( bar );
+
+	}
+
+	var setMode = function ( value ) {
+
+		mode = value;
+
+		switch ( mode ) {
+
+			case 0:
+				fpsDiv.style.display = 'block';
+				msDiv.style.display = 'none';
+				break;
+			case 1:
+				fpsDiv.style.display = 'none';
+				msDiv.style.display = 'block';
+				break;
+		}
+
+	};
+
+	var updateGraph = function ( dom, value ) {
+
+		var child = dom.appendChild( dom.firstChild );
+		child.style.height = value + 'px';
+
+	};
+
+	return {
+
+		REVISION: 12,
+
+		domElement: container,
+
+		setMode: setMode,
+
+		begin: function () {
+
+			startTime = Date.now();
+
+		},
+
+		end: function () {
+
+			var time = Date.now();
+
+			ms = time - startTime;
+			msMin = Math.min( msMin, ms );
+			msMax = Math.max( msMax, ms );
+
+			msText.textContent = ms + ' MS (' + msMin + '-' + msMax + ')';
+			updateGraph( msGraph, Math.min( 30, 30 - ( ms / 200 ) * 30 ) );
+
+			frames ++;
+
+			if ( time > prevTime + 1000 ) {
+
+				fps = Math.round( ( frames * 1000 ) / ( time - prevTime ) );
+				fpsMin = Math.min( fpsMin, fps );
+				fpsMax = Math.max( fpsMax, fps );
+
+				fpsText.textContent = fps + ' FPS (' + fpsMin + '-' + fpsMax + ')';
+				updateGraph( fpsGraph, Math.min( 30, 30 - ( fps / 100 ) * 30 ) );
+
+				prevTime = time;
+				frames = 0;
+
+			}
+
+			return time;
+
+		},
+
+		update: function () {
+
+			startTime = this.end();
+
+		}
+
+	}
+
+};
+
+if ( typeof module === 'object' ) {
+
+	module.exports = Stats;
+
+}
+},{}],10:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -42812,7 +42962,7 @@ if (typeof exports !== 'undefined') {
   this['THREE'] = THREE;
 }
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 // TinyColor v1.1.2
 // https://github.com/bgrins/TinyColor
 // Brian Grinstead, MIT License
@@ -43977,7 +44127,7 @@ else {
 
 })();
 
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -45527,7 +45677,7 @@ else {
   }
 }.call(this));
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 'use strict';
 
 var _                = require('underscore');
@@ -45921,7 +46071,7 @@ Building.prototype._debugBox = function(voxel) {
 
 module.exports = Building;
 
-},{"../models":15,"./voxel":13,"chance":1,"fast-simplex-noise":5,"three":9,"tinycolor2":10,"underscore":11}],13:[function(require,module,exports){
+},{"../models":16,"./voxel":14,"chance":1,"fast-simplex-noise":5,"three":10,"tinycolor2":11,"underscore":12}],14:[function(require,module,exports){
 'use strict';
 
 var _ = require('underscore');
@@ -45957,12 +46107,13 @@ var Voxel = function(parent, x, y, z) {
 };
 
 module.exports = Voxel;
-},{"underscore":11}],14:[function(require,module,exports){
+},{"underscore":12}],15:[function(require,module,exports){
 (function (global){
 'use strict';
 
 var _        = require('underscore');
 var THREE    = require('three');
+var Stats    = require('stats.js');
 var Chance   = require('chance');
 var Dat      = require('dat-gui');
 var models   = require('./models');
@@ -45976,9 +46127,13 @@ require('./plugins/MTLLoader');
 require('./plugins/OBJMTLLoader');
 require('./plugins/OrbitControls');
 
+models.load();
+
 var scene = new THREE.Scene();
 var renderer = new THREE.WebGLRenderer();
-renderer.setSize( window.innerWidth, window.innerHeight );
+renderer.setClearColor(0xffffff);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -45988,25 +46143,27 @@ camera.position.y = 25;
 var controls = new THREE.OrbitControls(camera);
 controls.damping = 0.2;
 
-models.load();
+var stats = new Stats();
+stats.domElement.style.position = 'absolute';
+stats.domElement.style.left = '0px';
+stats.domElement.style.top = '0px';
+document.body.appendChild(stats.domElement);
 
-var lights = [ [100, 100, 100], [100, 100, -100], [-100, 100,  -100], [-100, 100, 100], [0, -100, 0] ];
+var light = new THREE.AmbientLight(0x333333);
+scene.add( light );
 
-for(var i = 0; i < lights.length; i++) {
-  var directionalLight = new THREE.DirectionalLight( 0xffffff, 0.5 );
-  directionalLight.position.set( lights[i][0], lights[i][1], lights[i][2] );
-  directionalLight.target.position.set(0, -50, 0);
-  scene.add( directionalLight );
-}
+var light = new THREE.PointLight( 0xffffff, 0.8, 1000 );
+light.position.set(camera.position.x, camera.position.y, camera.position.z);
+scene.add(light);
 
 setTimeout(function() {
-  for(var i = 0; i <= 0; i++) {
-    for(var j = -5; j <= 5; j++) {
+  for(var i = -2; i <= 2; i++) {
+    for(var j = -2; j <= 2; j++) {
       var n = function() {
         return chance.integer({ min: -2, max: 1});
       }
 
-      new Building(scene, i*3*3, j*3.5*2, 3, 2, 2).generate();
+      new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
     }
   }
 }, 1000);
@@ -46039,15 +46196,21 @@ setTimeout(function() {
 // };
 
 var render = function () {
-  requestAnimationFrame(render);
+  stats.begin();
 
   controls.update();
+  
+  light.position.set(camera.position.x, camera.position.y, camera.position.z);
+
   renderer.render(scene, camera);
+  
+  stats.end();
+  requestAnimationFrame(render);
 };
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./building/building":12,"./models":15,"./plugins/MTLLoader":17,"./plugins/OBJMTLLoader":18,"./plugins/OrbitControls":19,"chance":1,"dat-gui":2,"three":9,"underscore":11}],15:[function(require,module,exports){
+},{"./building/building":13,"./models":16,"./plugins/MTLLoader":18,"./plugins/OBJMTLLoader":19,"./plugins/OrbitControls":20,"chance":1,"dat-gui":2,"stats.js":9,"three":10,"underscore":12}],16:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -46082,7 +46245,7 @@ exports.get = function(objectName) {
   return cache[objectName].clone();
 };
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./objects":16,"./plugins/MTLLoader":17,"./plugins/OBJMTLLoader":18,"three":9,"underscore":11}],16:[function(require,module,exports){
+},{"./objects":17,"./plugins/MTLLoader":18,"./plugins/OBJMTLLoader":19,"three":10,"underscore":12}],17:[function(require,module,exports){
 module.exports=[
   "Banner_01",
   "Banner_Short_01",
@@ -46154,15 +46317,12 @@ module.exports=[
   "Wood_Window_Square_01",
   "Wood_Window_Square_Sill_01"
 ]
-},{}],17:[function(require,module,exports){
-(function (global){
+},{}],18:[function(require,module,exports){
 /**
  * Loads a Wavefront .mtl file specifying materials
  *
  * @author angelxuanchang
  */
-
-global.materials = {};
 
 THREE.MTLLoader = function( baseUrl, options, crossOrigin ) {
 
@@ -46532,8 +46692,6 @@ THREE.MTLLoader.MaterialCreator.prototype = {
     // this.materials[ materialName ].wireframe = false;
     // this.materials[ materialName ].side = THREE.DoubleSide;
 
-    materials[materialName] = this.materials[materialName];
-
     return this.materials[ materialName ];
 
   },
@@ -46607,8 +46765,7 @@ THREE.MTLLoader.nextHighestPowerOfTwo_ = function( x ) {
 
 THREE.EventDispatcher.prototype.apply( THREE.MTLLoader.prototype );
 
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 /**
  * Loads a Wavefront .obj file with materials
  *
@@ -46974,7 +47131,7 @@ THREE.OBJMTLLoader.prototype = {
 };
 
 THREE.EventDispatcher.prototype.apply( THREE.OBJMTLLoader.prototype );
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 /**
  * @author qiao / https://github.com/qiao
  * @author mrdoob / http://mrdoob.com
@@ -47681,4 +47838,4 @@ THREE.OrbitControls = function ( object, domElement ) {
 
 THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
 THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-},{}]},{},[14])
+},{}]},{},[15])
