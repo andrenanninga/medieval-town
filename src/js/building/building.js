@@ -45,8 +45,6 @@ var Building = function(parent, x, y, width, height, depth) {
   this.depth = depth;
 
   this.group = new THREE.Group();
-  this.group.position.x = x;
-  this.group.position.z = y;
 };
 
 Building.prototype.isSolid = function(x, y, z) {
@@ -130,9 +128,6 @@ Building.prototype.generate = function() {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
         var voxel = new Voxel(this, x, y, z);
 
-        if(this.showDebug) {
-          this._debugBox(voxel);
-        }
         this._setFloor(voxel);
         this._setRoof(voxel);
         this._setWalls(voxel);
@@ -223,12 +218,12 @@ Building.prototype._setRoof = function(voxel) {
     }
     else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
       roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.2;
+      position.y += 1.25;
       rotation.y = Math.PI / 2;
     }
     else if(!voxel.west && !voxel.east && (voxel.north || voxel.south)) {
       roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.2;
+      position.y += 1.25;
     }
     else if(!voxel.south && this.depth > this.width) {
       roof = models.get('Roof_Slant_Green_01');

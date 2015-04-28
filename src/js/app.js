@@ -43,19 +43,19 @@ var light = new THREE.PointLight( 0xffffff, 0.8, 1000 );
 light.position.set(camera.position.x, camera.position.y, camera.position.z);
 scene.add(light);
 
-// setTimeout(function() {
-//   var n = function() {
-//     return chance.integer({ min: -2, max: 1});
-//   };
-
-//   for(var i = -10; i <= 10; i++) {
-//     for(var j = -10; j <= 10; j++) {
-//       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
-//     }
-//   }
-// }, 2000);
-
 models.load(function() {
+  // setTimeout(function() {
+  //   var n = function() {
+  //     return chance.integer({ min: -2, max: 1});
+  //   };
+
+  //   for(var i = -6; i <= 6; i++) {
+  //     for(var j = -6; j <= 6; j++) {
+  //       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
+  //     }
+  //   }
+  // }, 2000);
+
   var building = new Building(scene, 0, 0, 4, 3, 4);
   building.generate();
 

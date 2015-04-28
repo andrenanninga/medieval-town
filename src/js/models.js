@@ -18,6 +18,7 @@ global._ = _;
 
 exports.load = function(cb) {
   NProgress.start();
+  NProgress.configure({ trickle: false });
 
   _.each(objects, function(objectName, i) {
     loader.load(
@@ -29,7 +30,7 @@ exports.load = function(cb) {
         NProgress.set(_.values(cache).length / objects.length);
 
         if(_.values(cache).length === objects.length) {
-          NProgress.done();
+          NProgress.done(); 
           cb();
         }
       }
