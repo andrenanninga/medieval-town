@@ -1,9 +1,10 @@
 'use strict';
 
-var _       = require('underscore');
-var THREE   = require('three');
+var _         = require('underscore');
+var THREE     = require('three');
+var NProgress = require('nprogress');
 
-var objects = require('./objects');
+var objects   = require('./objects');
 
 global.THREE = THREE;
 
@@ -15,13 +16,22 @@ var loader = new THREE.OBJMTLLoader();
 global.cache = cache;
 global._ = _;
 
-exports.load = function() {
+exports.load = function(cb) {
+  NProgress.start();
+
   _.each(objects, function(objectName, i) {
     loader.load(
       'assets/models/' + objectName + '.obj',
       'assets/models/' + objectName + '.mtl',
       function(object) {
         cache[objectName] = object;
+
+        NProgress.set(_.values(cache).length / objects.length);
+
+        if(_.values(cache).length === objects.length) {
+          NProgress.done();
+          cb();
+        }
       }
     );
   });

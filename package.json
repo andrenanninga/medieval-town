@@ -12,6 +12,7 @@
     "chance": "^0.7.3",
     "dat-gui": "^0.5.0",
     "fast-simplex-noise": "^0.5.0",
+    "nprogress": "^0.1.6",
     "stats": "mrdoob/stats.js",
     "three": "^0.70.0",
     "tinycolor": "0.0.1",
@@ -25,6 +26,7 @@
     "gulp-connect": "^2.2.0",
     "gulp-gh-pages": "^0.5.1",
     "gulp-plumber": "^1.0.0",
+    "gulp-replace": "^0.5.3",
     "run-sequence": "^1.0.2"
   }
 }

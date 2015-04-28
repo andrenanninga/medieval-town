@@ -16,11 +16,9 @@ require('./plugins/MTLLoader');
 require('./plugins/OBJMTLLoader');
 require('./plugins/OrbitControls');
 
-models.load();
-
 var scene = new THREE.Scene();
 var renderer = new THREE.WebGLRenderer();
-renderer.setClearColor(0xffffff);
+renderer.setClearColor(0xf0f0f0);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -50,17 +48,17 @@ scene.add(light);
 //     return chance.integer({ min: -2, max: 1});
 //   };
 
-//   for(var i = -2; i <= 2; i++) {
-//     for(var j = -2; j <= 2; j++) {
+//   for(var i = -10; i <= 10; i++) {
+//     for(var j = -10; j <= 10; j++) {
 //       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
 //     }
 //   }
-// }, 1000);
+// }, 2000);
 
-var building = new Building(scene, 0, 0, 3, 3, 3);
-console.log(building);
+models.load(function() {
+  var building = new Building(scene, 0, 0, 4, 3, 4);
+  building.generate();
 
-window.onload =function() {
   var gui = new Dat.GUI();
   gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
   gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
@@ -79,10 +77,8 @@ window.onload =function() {
   gui.add(building, 'shieldChance').min(0).max(1);
   gui.add(building, 'fenceChance').min(0).max(1);
 
-  gui.add(building, 'showDebug');
-
   gui.add(building, 'generate');
-};
+});
 
 var render = function () {
   stats.begin();

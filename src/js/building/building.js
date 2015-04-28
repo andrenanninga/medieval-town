@@ -21,6 +21,8 @@ var colors = {
 };
 
 var Building = function(parent, x, y, width, height, depth) {
+  this.parent = parent;
+
   this.amplitude = 1;
   this.frequency = 0.08;
   this.octaves = 16;
@@ -36,8 +38,6 @@ var Building = function(parent, x, y, width, height, depth) {
 
   this.fenceChance = 0.4;
 
-  this.showDebug = false;
-
   this.x = x;
   this.y = y;
   this.width = width;
@@ -47,8 +47,6 @@ var Building = function(parent, x, y, width, height, depth) {
   this.group = new THREE.Group();
   this.group.position.x = x;
   this.group.position.z = y;
-
-  parent.add(this.group);
 };
 
 Building.prototype.isSolid = function(x, y, z) {
@@ -110,6 +108,7 @@ Building.prototype.generate = function() {
   });
 
   this.group.remove.apply(this.group, this.group.children);
+
   this.colors = _.chain(colors)
     .mapObject(_.sample)
     .mapObject(function(color) {
@@ -146,20 +145,47 @@ Building.prototype.generate = function() {
     }
   }
 
+  var geometry = new THREE.Geometry();
+  var materials = {};
+
+  this.group.updateMatrixWorld();
+
   this.group.traverse(function(object) {
-    if(object.material && object.material.name.length > 0) {
-      var color = self.colors[object.material.name];
-      if(color) {
+    if(object.type === 'Mesh') {
+      object.position.setFromMatrixPosition(object.matrixWorld);
+      object.rotation.setFromRotationMatrix(object.matrixWorld);
+      object.updateMatrix();
+
+      var index = _.chain(materials).keys().indexOf(object.material.name).value();
+
+      if(index === -1) {
         var material = object.material.clone();
 
-        material.color.r = color.r;
-        material.color.g = color.g;
-        material.color.b = color.b;
+        var color = self.colors[object.material.name];
+        if(color) {
+          material.color.r = color.r;
+          material.color.g = color.g;
+          material.color.b = color.b;
+        }
 
-        object.material = material;
+        materials[object.material.name] = material;
+        index = _.keys(materials).length - 1;
       }
+
+      geometry.merge(object.geometry, object.matrix, index);
     }
   });
+
+  if(this.mesh) {
+    this.parent.remove(this.mesh);
+  }
+
+  var material = new THREE.MeshFaceMaterial(_.values(materials));
+  this.mesh = new THREE.Mesh(geometry, material);
+  this.mesh.position.x = this.x;
+  this.mesh.position.z = this.y;
+
+  this.parent.add(this.mesh);
 };
 
 
@@ -362,33 +388,6 @@ Building.prototype._setFence = function(voxel) {
         this.group.add(fence);
       }
     }
-  }
-}
-
-Building.prototype._debugBox = function(voxel) {
-  var material, geometry, mesh;
-
-  if(voxel.solid) {   
-    material = new THREE.MeshNormalMaterial({ wireframe: true });
-    geometry = new THREE.BoxGeometry(X, Y, Z);
-    mesh = new THREE.Mesh(geometry, material);
-
-    mesh.position.x = voxel.x * X;
-    mesh.position.y = voxel.y * Y;
-    mesh.position.z = voxel.z * Z;
-
-    this.group.add(mesh);
-  }
-  else if(voxel.y === 0) {
-    material = new THREE.MeshNormalMaterial({ wireframe: true });
-    geometry = new THREE.BoxGeometry(X, 0.0001, Z);
-    mesh = new THREE.Mesh(geometry, material);
-
-    mesh.position.x = voxel.x * X;
-    mesh.position.y = voxel.y * Y - Y / 2;
-    mesh.position.z = voxel.z * Z;
-
-    this.group.add(mesh);
   }
 };
 
