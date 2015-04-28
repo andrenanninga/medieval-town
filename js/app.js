@@ -46203,8 +46203,6 @@ var Building = function(parent, x, y, width, height, depth) {
   this.depth = depth;
 
   this.group = new THREE.Group();
-  this.group.position.x = x;
-  this.group.position.z = y;
 };
 
 Building.prototype.isSolid = function(x, y, z) {
@@ -46288,9 +46286,6 @@ Building.prototype.generate = function() {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
         var voxel = new Voxel(this, x, y, z);
 
-        if(this.showDebug) {
-          this._debugBox(voxel);
-        }
         this._setFloor(voxel);
         this._setRoof(voxel);
         this._setWalls(voxel);
@@ -46381,12 +46376,12 @@ Building.prototype._setRoof = function(voxel) {
     }
     else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
       roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.2;
+      position.y += 1.25;
       rotation.y = Math.PI / 2;
     }
     else if(!voxel.west && !voxel.east && (voxel.north || voxel.south)) {
       roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.2;
+      position.y += 1.25;
     }
     else if(!voxel.south && this.depth > this.width) {
       roof = models.get('Roof_Slant_Green_01');
@@ -46634,19 +46629,19 @@ var light = new THREE.PointLight( 0xffffff, 0.8, 1000 );
 light.position.set(camera.position.x, camera.position.y, camera.position.z);
 scene.add(light);
 
-// setTimeout(function() {
-//   var n = function() {
-//     return chance.integer({ min: -2, max: 1});
-//   };
-
-//   for(var i = -10; i <= 10; i++) {
-//     for(var j = -10; j <= 10; j++) {
-//       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
-//     }
-//   }
-// }, 2000);
-
 models.load(function() {
+  // setTimeout(function() {
+  //   var n = function() {
+  //     return chance.integer({ min: -2, max: 1});
+  //   };
+
+  //   for(var i = -6; i <= 6; i++) {
+  //     for(var j = -6; j <= 6; j++) {
+  //       new Building(scene, i*3*6, j*3*6, 4 + n(), 4 + n(), 4 + n()).generate();
+  //     }
+  //   }
+  // }, 2000);
+
   var building = new Building(scene, 0, 0, 4, 3, 4);
   building.generate();
 
@@ -46708,6 +46703,7 @@ global._ = _;
 
 exports.load = function(cb) {
   NProgress.start();
+  NProgress.configure({ trickle: false });
 
   _.each(objects, function(objectName, i) {
     loader.load(
@@ -46719,7 +46715,7 @@ exports.load = function(cb) {
         NProgress.set(_.values(cache).length / objects.length);
 
         if(_.values(cache).length === objects.length) {
-          NProgress.done();
+          NProgress.done(); 
           cb();
         }
       }
