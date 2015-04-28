@@ -5,6 +5,7 @@ var THREE            = require('three');
 var FastSimplexNoise = require('fast-simplex-noise');
 var tinycolor        = require('tinycolor2');
 var Chance           = require('chance');
+var seedrandom       = require('seedrandom');
 var models           = require('../models');
 var Voxel            = require('./voxel');
 
@@ -28,15 +29,18 @@ var Building = function(parent, x, y, width, height, depth) {
   this.octaves = 16;
   this.persistence = 0.5;
 
+  this.solidChance = 0.65;
   this.roofPointChance = 0.6;
   this.wallWindowChance = 0.3;
   this.wallDoorChance = 0.1;
   this.bannerChance = 0.1;
   this.shieldChance = 0.1;
 
-  this.heightDampener = 4;
+  this.heightDampener = 0.125;
 
   this.fenceChance = 0.4;
+  this.seed = 0;
+  this.randomSeed();
 
   this.x = x;
   this.y = y;
@@ -60,7 +64,13 @@ Building.prototype.isSolid = function(x, y, z) {
     return false;
   }
 
-  return this.noiseGen.get3DNoise(x, y, z) - y / this.heightDampener > 0; 
+  var n = (this.noiseGen.get3DNoise(x, y, z) + 1) / 2;
+  n = n - y * this.heightDampener;
+  n = Math.max(n, 0);
+
+  var solid = n > (1 - this.solidChance);
+
+  return solid; 
 };
 
 Building.prototype.isBorder = function(x, y, z) {
@@ -98,17 +108,21 @@ Building.prototype.isOutside = function(x, y, z) {
 Building.prototype.generate = function() {
   var self = this;
 
+  this.rng = seedrandom(this.seed);
+  chance.random = this.rng;
+
   this.noiseGen = new FastSimplexNoise({ 
     frequency: this.frequency, 
     octaves: this.octaves,
     amplitude: this.amplitude,
-    persistence: this.persistence
+    persistence: this.persistence,
+    random: this.rng
   });
 
   this.group.remove.apply(this.group, this.group.children);
 
   this.colors = _.chain(colors)
-    .mapObject(_.sample)
+    .mapObject(function(colors) { return chance.pick(colors); })
     .mapObject(function(color) {
       var rgb = tinycolor(color).toRgb();
       
@@ -121,7 +135,7 @@ Building.prototype.generate = function() {
     })
     .value();
 
-  var hasFence = Math.random() < this.fenceChance;
+  var hasFence = this.rng() < this.fenceChance;
 
   for(var x = -this.width / 2; x < this.width / 2; x++) {
     for(var y = 0; y < this.height; y++) {
@@ -183,6 +197,14 @@ Building.prototype.generate = function() {
   this.parent.add(this.mesh);
 };
 
+Building.prototype.randomSeed = function() {
+  this.seed = Math.round(Math.random() * 10000);
+};
+
+Building.prototype.generateRandomSeed = function() {
+  this.randomSeed();
+  this.generate();
+};
 
 Building.prototype._setFloor = function(voxel) {
   var floor;
@@ -206,14 +228,14 @@ Building.prototype._setRoof = function(voxel) {
 
   if(voxel.solid && !voxel.up) {
     if(!voxel.north && !voxel.east && !voxel.south && !voxel.west) {
-      if(Math.random() < this.roofPointChance) {
+      if(this.rng() < this.roofPointChance) {
         roof = models.get('Roof_Point_Green_01');
         position.y += 1.2;
       }
       else {
         roof = models.get('Roof_Straight_Green_01');
         position.y += 1.2;
-        rotation.y = (Math.random() > 0.5) ? Math.PI / 2 : 0;
+        rotation.y = (this.rng() > 0.5) ? Math.PI / 2 : 0;
       }
     }
     else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
@@ -273,22 +295,22 @@ Building.prototype._setWalls = function(voxel) {
     var side = sides[i];
 
     if(!side[0]) {
-      if(voxel.y === 0 && Math.random() < this.wallDoorChance) {
+      if(voxel.y === 0 && this.rng() < this.wallDoorChance) {
         wall = models.get('Wood_Door_Round_01');
       }
-      else if(Math.random() < this.wallWindowChance) {
+      else if(this.rng() < this.wallWindowChance) {
         wall = models.get('Wood_Window_Round_01');
       }
       else {
 
-        type = _.sample([
+        type = chance.pick([
           'Wood_Wall_01', 
           'Wood_Wall_Double_Cross_01', 
           'Wood_Wall_Cross_01'
         ]);
         wall = models.get(type);
 
-        if(type === 'Wood_Wall_01' && Math.random() < this.bannerChance) {
+        if(type === 'Wood_Wall_01' && this.rng() < this.bannerChance) {
           var banner = models.get('Banner_Short_01');
 
           banner.rotation.y = Math.PI / 2;
@@ -297,7 +319,7 @@ Building.prototype._setWalls = function(voxel) {
 
           wall.add(banner);
         }
-        else if(type === 'Wood_Wall_01' && Math.random() < this.shieldChance) {
+        else if(type === 'Wood_Wall_01' && this.rng() < this.shieldChance) {
           var shield = models.get('Shield_Green_01');
 
           shield.rotation.y = 0; 
@@ -322,12 +344,12 @@ Building.prototype._setPillars = function(voxel) {
   if(voxel.solid) { return; }
 
   if(voxel.ceiling) {
-    var pillar;
+    var pillar; 
     var pillars = {
-      northWest: { place: true, x: -1.2, z: -1.2 },
-      northEast: { place: true, x: -1.2, z: 1.2 },
-      southWest: { place: true, x: 1.2, z: -1.2 },
-      southEast: { place: true, x: 1.2, z: 1.2 }
+      northWest: { place: true, x: -1.2, z: -1.2, rot: 0 },
+      northEast: { place: true, x: -1.2, z: 1.2, rot: Math.PI / 2 },
+      southWest: { place: true, x: 1.2, z: -1.2, rot: Math.PI / -2 },
+      southEast: { place: true, x: 1.2, z: 1.2, rot: Math.PI }
     };
 
     if(voxel.north && voxel.west) {
@@ -352,6 +374,7 @@ Building.prototype._setPillars = function(voxel) {
       pillar.position.x = voxel.x * X + value.x;
       pillar.position.y = voxel.y * Y - 1.25;
       pillar.position.z = voxel.z * Z + value.z;
+      pillar.rotation.y = value.rot;
       this.group.add(pillar);
     }, this);
   }

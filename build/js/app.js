@@ -8253,6 +8253,524 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
 };
 
 },{}],9:[function(require,module,exports){
+var Buffer = require('buffer').Buffer;
+var intSize = 4;
+var zeroBuffer = new Buffer(intSize); zeroBuffer.fill(0);
+var chrsz = 8;
+
+function toArray(buf, bigEndian) {
+  if ((buf.length % intSize) !== 0) {
+    var len = buf.length + (intSize - (buf.length % intSize));
+    buf = Buffer.concat([buf, zeroBuffer], len);
+  }
+
+  var arr = [];
+  var fn = bigEndian ? buf.readInt32BE : buf.readInt32LE;
+  for (var i = 0; i < buf.length; i += intSize) {
+    arr.push(fn.call(buf, i));
+  }
+  return arr;
+}
+
+function toBuffer(arr, size, bigEndian) {
+  var buf = new Buffer(size);
+  var fn = bigEndian ? buf.writeInt32BE : buf.writeInt32LE;
+  for (var i = 0; i < arr.length; i++) {
+    fn.call(buf, arr[i], i * 4, true);
+  }
+  return buf;
+}
+
+function hash(buf, fn, hashSize, bigEndian) {
+  if (!Buffer.isBuffer(buf)) buf = new Buffer(buf);
+  var arr = fn(toArray(buf, bigEndian), buf.length * chrsz);
+  return toBuffer(arr, hashSize, bigEndian);
+}
+
+module.exports = { hash: hash };
+
+},{"buffer":6}],10:[function(require,module,exports){
+var Buffer = require('buffer').Buffer
+var sha = require('./sha')
+var sha256 = require('./sha256')
+var rng = require('./rng')
+var md5 = require('./md5')
+
+var algorithms = {
+  sha1: sha,
+  sha256: sha256,
+  md5: md5
+}
+
+var blocksize = 64
+var zeroBuffer = new Buffer(blocksize); zeroBuffer.fill(0)
+function hmac(fn, key, data) {
+  if(!Buffer.isBuffer(key)) key = new Buffer(key)
+  if(!Buffer.isBuffer(data)) data = new Buffer(data)
+
+  if(key.length > blocksize) {
+    key = fn(key)
+  } else if(key.length < blocksize) {
+    key = Buffer.concat([key, zeroBuffer], blocksize)
+  }
+
+  var ipad = new Buffer(blocksize), opad = new Buffer(blocksize)
+  for(var i = 0; i < blocksize; i++) {
+    ipad[i] = key[i] ^ 0x36
+    opad[i] = key[i] ^ 0x5C
+  }
+
+  var hash = fn(Buffer.concat([ipad, data]))
+  return fn(Buffer.concat([opad, hash]))
+}
+
+function hash(alg, key) {
+  alg = alg || 'sha1'
+  var fn = algorithms[alg]
+  var bufs = []
+  var length = 0
+  if(!fn) error('algorithm:', alg, 'is not yet supported')
+  return {
+    update: function (data) {
+      if(!Buffer.isBuffer(data)) data = new Buffer(data)
+        
+      bufs.push(data)
+      length += data.length
+      return this
+    },
+    digest: function (enc) {
+      var buf = Buffer.concat(bufs)
+      var r = key ? hmac(fn, key, buf) : fn(buf)
+      bufs = null
+      return enc ? r.toString(enc) : r
+    }
+  }
+}
+
+function error () {
+  var m = [].slice.call(arguments).join(' ')
+  throw new Error([
+    m,
+    'we accept pull requests',
+    'http://github.com/dominictarr/crypto-browserify'
+    ].join('\n'))
+}
+
+exports.createHash = function (alg) { return hash(alg) }
+exports.createHmac = function (alg, key) { return hash(alg, key) }
+exports.randomBytes = function(size, callback) {
+  if (callback && callback.call) {
+    try {
+      callback.call(this, undefined, new Buffer(rng(size)))
+    } catch (err) { callback(err) }
+  } else {
+    return new Buffer(rng(size))
+  }
+}
+
+function each(a, f) {
+  for(var i in a)
+    f(a[i], i)
+}
+
+// the least I can do is make error messages for the rest of the node.js/crypto api.
+each(['createCredentials'
+, 'createCipher'
+, 'createCipheriv'
+, 'createDecipher'
+, 'createDecipheriv'
+, 'createSign'
+, 'createVerify'
+, 'createDiffieHellman'
+, 'pbkdf2'], function (name) {
+  exports[name] = function () {
+    error('sorry,', name, 'is not implemented yet')
+  }
+})
+
+},{"./md5":11,"./rng":12,"./sha":13,"./sha256":14,"buffer":6}],11:[function(require,module,exports){
+/*
+ * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
+ * Digest Algorithm, as defined in RFC 1321.
+ * Version 2.1 Copyright (C) Paul Johnston 1999 - 2002.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ * Distributed under the BSD License
+ * See http://pajhome.org.uk/crypt/md5 for more info.
+ */
+
+var helpers = require('./helpers');
+
+/*
+ * Perform a simple self-test to see if the VM is working
+ */
+function md5_vm_test()
+{
+  return hex_md5("abc") == "900150983cd24fb0d6963f7d28e17f72";
+}
+
+/*
+ * Calculate the MD5 of an array of little-endian words, and a bit length
+ */
+function core_md5(x, len)
+{
+  /* append padding */
+  x[len >> 5] |= 0x80 << ((len) % 32);
+  x[(((len + 64) >>> 9) << 4) + 14] = len;
+
+  var a =  1732584193;
+  var b = -271733879;
+  var c = -1732584194;
+  var d =  271733878;
+
+  for(var i = 0; i < x.length; i += 16)
+  {
+    var olda = a;
+    var oldb = b;
+    var oldc = c;
+    var oldd = d;
+
+    a = md5_ff(a, b, c, d, x[i+ 0], 7 , -680876936);
+    d = md5_ff(d, a, b, c, x[i+ 1], 12, -389564586);
+    c = md5_ff(c, d, a, b, x[i+ 2], 17,  606105819);
+    b = md5_ff(b, c, d, a, x[i+ 3], 22, -1044525330);
+    a = md5_ff(a, b, c, d, x[i+ 4], 7 , -176418897);
+    d = md5_ff(d, a, b, c, x[i+ 5], 12,  1200080426);
+    c = md5_ff(c, d, a, b, x[i+ 6], 17, -1473231341);
+    b = md5_ff(b, c, d, a, x[i+ 7], 22, -45705983);
+    a = md5_ff(a, b, c, d, x[i+ 8], 7 ,  1770035416);
+    d = md5_ff(d, a, b, c, x[i+ 9], 12, -1958414417);
+    c = md5_ff(c, d, a, b, x[i+10], 17, -42063);
+    b = md5_ff(b, c, d, a, x[i+11], 22, -1990404162);
+    a = md5_ff(a, b, c, d, x[i+12], 7 ,  1804603682);
+    d = md5_ff(d, a, b, c, x[i+13], 12, -40341101);
+    c = md5_ff(c, d, a, b, x[i+14], 17, -1502002290);
+    b = md5_ff(b, c, d, a, x[i+15], 22,  1236535329);
+
+    a = md5_gg(a, b, c, d, x[i+ 1], 5 , -165796510);
+    d = md5_gg(d, a, b, c, x[i+ 6], 9 , -1069501632);
+    c = md5_gg(c, d, a, b, x[i+11], 14,  643717713);
+    b = md5_gg(b, c, d, a, x[i+ 0], 20, -373897302);
+    a = md5_gg(a, b, c, d, x[i+ 5], 5 , -701558691);
+    d = md5_gg(d, a, b, c, x[i+10], 9 ,  38016083);
+    c = md5_gg(c, d, a, b, x[i+15], 14, -660478335);
+    b = md5_gg(b, c, d, a, x[i+ 4], 20, -405537848);
+    a = md5_gg(a, b, c, d, x[i+ 9], 5 ,  568446438);
+    d = md5_gg(d, a, b, c, x[i+14], 9 , -1019803690);
+    c = md5_gg(c, d, a, b, x[i+ 3], 14, -187363961);
+    b = md5_gg(b, c, d, a, x[i+ 8], 20,  1163531501);
+    a = md5_gg(a, b, c, d, x[i+13], 5 , -1444681467);
+    d = md5_gg(d, a, b, c, x[i+ 2], 9 , -51403784);
+    c = md5_gg(c, d, a, b, x[i+ 7], 14,  1735328473);
+    b = md5_gg(b, c, d, a, x[i+12], 20, -1926607734);
+
+    a = md5_hh(a, b, c, d, x[i+ 5], 4 , -378558);
+    d = md5_hh(d, a, b, c, x[i+ 8], 11, -2022574463);
+    c = md5_hh(c, d, a, b, x[i+11], 16,  1839030562);
+    b = md5_hh(b, c, d, a, x[i+14], 23, -35309556);
+    a = md5_hh(a, b, c, d, x[i+ 1], 4 , -1530992060);
+    d = md5_hh(d, a, b, c, x[i+ 4], 11,  1272893353);
+    c = md5_hh(c, d, a, b, x[i+ 7], 16, -155497632);
+    b = md5_hh(b, c, d, a, x[i+10], 23, -1094730640);
+    a = md5_hh(a, b, c, d, x[i+13], 4 ,  681279174);
+    d = md5_hh(d, a, b, c, x[i+ 0], 11, -358537222);
+    c = md5_hh(c, d, a, b, x[i+ 3], 16, -722521979);
+    b = md5_hh(b, c, d, a, x[i+ 6], 23,  76029189);
+    a = md5_hh(a, b, c, d, x[i+ 9], 4 , -640364487);
+    d = md5_hh(d, a, b, c, x[i+12], 11, -421815835);
+    c = md5_hh(c, d, a, b, x[i+15], 16,  530742520);
+    b = md5_hh(b, c, d, a, x[i+ 2], 23, -995338651);
+
+    a = md5_ii(a, b, c, d, x[i+ 0], 6 , -198630844);
+    d = md5_ii(d, a, b, c, x[i+ 7], 10,  1126891415);
+    c = md5_ii(c, d, a, b, x[i+14], 15, -1416354905);
+    b = md5_ii(b, c, d, a, x[i+ 5], 21, -57434055);
+    a = md5_ii(a, b, c, d, x[i+12], 6 ,  1700485571);
+    d = md5_ii(d, a, b, c, x[i+ 3], 10, -1894986606);
+    c = md5_ii(c, d, a, b, x[i+10], 15, -1051523);
+    b = md5_ii(b, c, d, a, x[i+ 1], 21, -2054922799);
+    a = md5_ii(a, b, c, d, x[i+ 8], 6 ,  1873313359);
+    d = md5_ii(d, a, b, c, x[i+15], 10, -30611744);
+    c = md5_ii(c, d, a, b, x[i+ 6], 15, -1560198380);
+    b = md5_ii(b, c, d, a, x[i+13], 21,  1309151649);
+    a = md5_ii(a, b, c, d, x[i+ 4], 6 , -145523070);
+    d = md5_ii(d, a, b, c, x[i+11], 10, -1120210379);
+    c = md5_ii(c, d, a, b, x[i+ 2], 15,  718787259);
+    b = md5_ii(b, c, d, a, x[i+ 9], 21, -343485551);
+
+    a = safe_add(a, olda);
+    b = safe_add(b, oldb);
+    c = safe_add(c, oldc);
+    d = safe_add(d, oldd);
+  }
+  return Array(a, b, c, d);
+
+}
+
+/*
+ * These functions implement the four basic operations the algorithm uses.
+ */
+function md5_cmn(q, a, b, x, s, t)
+{
+  return safe_add(bit_rol(safe_add(safe_add(a, q), safe_add(x, t)), s),b);
+}
+function md5_ff(a, b, c, d, x, s, t)
+{
+  return md5_cmn((b & c) | ((~b) & d), a, b, x, s, t);
+}
+function md5_gg(a, b, c, d, x, s, t)
+{
+  return md5_cmn((b & d) | (c & (~d)), a, b, x, s, t);
+}
+function md5_hh(a, b, c, d, x, s, t)
+{
+  return md5_cmn(b ^ c ^ d, a, b, x, s, t);
+}
+function md5_ii(a, b, c, d, x, s, t)
+{
+  return md5_cmn(c ^ (b | (~d)), a, b, x, s, t);
+}
+
+/*
+ * Add integers, wrapping at 2^32. This uses 16-bit operations internally
+ * to work around bugs in some JS interpreters.
+ */
+function safe_add(x, y)
+{
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+}
+
+/*
+ * Bitwise rotate a 32-bit number to the left.
+ */
+function bit_rol(num, cnt)
+{
+  return (num << cnt) | (num >>> (32 - cnt));
+}
+
+module.exports = function md5(buf) {
+  return helpers.hash(buf, core_md5, 16);
+};
+
+},{"./helpers":9}],12:[function(require,module,exports){
+// Original code adapted from Robert Kieffer.
+// details at https://github.com/broofa/node-uuid
+(function() {
+  var _global = this;
+
+  var mathRNG, whatwgRNG;
+
+  // NOTE: Math.random() does not guarantee "cryptographic quality"
+  mathRNG = function(size) {
+    var bytes = new Array(size);
+    var r;
+
+    for (var i = 0, r; i < size; i++) {
+      if ((i & 0x03) == 0) r = Math.random() * 0x100000000;
+      bytes[i] = r >>> ((i & 0x03) << 3) & 0xff;
+    }
+
+    return bytes;
+  }
+
+  if (_global.crypto && crypto.getRandomValues) {
+    whatwgRNG = function(size) {
+      var bytes = new Uint8Array(size);
+      crypto.getRandomValues(bytes);
+      return bytes;
+    }
+  }
+
+  module.exports = whatwgRNG || mathRNG;
+
+}())
+
+},{}],13:[function(require,module,exports){
+/*
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
+ * in FIPS PUB 180-1
+ * Version 2.1a Copyright Paul Johnston 2000 - 2002.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ * Distributed under the BSD License
+ * See http://pajhome.org.uk/crypt/md5 for details.
+ */
+
+var helpers = require('./helpers');
+
+/*
+ * Calculate the SHA-1 of an array of big-endian words, and a bit length
+ */
+function core_sha1(x, len)
+{
+  /* append padding */
+  x[len >> 5] |= 0x80 << (24 - len % 32);
+  x[((len + 64 >> 9) << 4) + 15] = len;
+
+  var w = Array(80);
+  var a =  1732584193;
+  var b = -271733879;
+  var c = -1732584194;
+  var d =  271733878;
+  var e = -1009589776;
+
+  for(var i = 0; i < x.length; i += 16)
+  {
+    var olda = a;
+    var oldb = b;
+    var oldc = c;
+    var oldd = d;
+    var olde = e;
+
+    for(var j = 0; j < 80; j++)
+    {
+      if(j < 16) w[j] = x[i + j];
+      else w[j] = rol(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
+      var t = safe_add(safe_add(rol(a, 5), sha1_ft(j, b, c, d)),
+                       safe_add(safe_add(e, w[j]), sha1_kt(j)));
+      e = d;
+      d = c;
+      c = rol(b, 30);
+      b = a;
+      a = t;
+    }
+
+    a = safe_add(a, olda);
+    b = safe_add(b, oldb);
+    c = safe_add(c, oldc);
+    d = safe_add(d, oldd);
+    e = safe_add(e, olde);
+  }
+  return Array(a, b, c, d, e);
+
+}
+
+/*
+ * Perform the appropriate triplet combination function for the current
+ * iteration
+ */
+function sha1_ft(t, b, c, d)
+{
+  if(t < 20) return (b & c) | ((~b) & d);
+  if(t < 40) return b ^ c ^ d;
+  if(t < 60) return (b & c) | (b & d) | (c & d);
+  return b ^ c ^ d;
+}
+
+/*
+ * Determine the appropriate additive constant for the current iteration
+ */
+function sha1_kt(t)
+{
+  return (t < 20) ?  1518500249 : (t < 40) ?  1859775393 :
+         (t < 60) ? -1894007588 : -899497514;
+}
+
+/*
+ * Add integers, wrapping at 2^32. This uses 16-bit operations internally
+ * to work around bugs in some JS interpreters.
+ */
+function safe_add(x, y)
+{
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+}
+
+/*
+ * Bitwise rotate a 32-bit number to the left.
+ */
+function rol(num, cnt)
+{
+  return (num << cnt) | (num >>> (32 - cnt));
+}
+
+module.exports = function sha1(buf) {
+  return helpers.hash(buf, core_sha1, 20, true);
+};
+
+},{"./helpers":9}],14:[function(require,module,exports){
+
+/**
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
+ * in FIPS 180-2
+ * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ *
+ */
+
+var helpers = require('./helpers');
+
+var safe_add = function(x, y) {
+  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return (msw << 16) | (lsw & 0xFFFF);
+};
+
+var S = function(X, n) {
+  return (X >>> n) | (X << (32 - n));
+};
+
+var R = function(X, n) {
+  return (X >>> n);
+};
+
+var Ch = function(x, y, z) {
+  return ((x & y) ^ ((~x) & z));
+};
+
+var Maj = function(x, y, z) {
+  return ((x & y) ^ (x & z) ^ (y & z));
+};
+
+var Sigma0256 = function(x) {
+  return (S(x, 2) ^ S(x, 13) ^ S(x, 22));
+};
+
+var Sigma1256 = function(x) {
+  return (S(x, 6) ^ S(x, 11) ^ S(x, 25));
+};
+
+var Gamma0256 = function(x) {
+  return (S(x, 7) ^ S(x, 18) ^ R(x, 3));
+};
+
+var Gamma1256 = function(x) {
+  return (S(x, 17) ^ S(x, 19) ^ R(x, 10));
+};
+
+var core_sha256 = function(m, l) {
+  var K = new Array(0x428A2F98,0x71374491,0xB5C0FBCF,0xE9B5DBA5,0x3956C25B,0x59F111F1,0x923F82A4,0xAB1C5ED5,0xD807AA98,0x12835B01,0x243185BE,0x550C7DC3,0x72BE5D74,0x80DEB1FE,0x9BDC06A7,0xC19BF174,0xE49B69C1,0xEFBE4786,0xFC19DC6,0x240CA1CC,0x2DE92C6F,0x4A7484AA,0x5CB0A9DC,0x76F988DA,0x983E5152,0xA831C66D,0xB00327C8,0xBF597FC7,0xC6E00BF3,0xD5A79147,0x6CA6351,0x14292967,0x27B70A85,0x2E1B2138,0x4D2C6DFC,0x53380D13,0x650A7354,0x766A0ABB,0x81C2C92E,0x92722C85,0xA2BFE8A1,0xA81A664B,0xC24B8B70,0xC76C51A3,0xD192E819,0xD6990624,0xF40E3585,0x106AA070,0x19A4C116,0x1E376C08,0x2748774C,0x34B0BCB5,0x391C0CB3,0x4ED8AA4A,0x5B9CCA4F,0x682E6FF3,0x748F82EE,0x78A5636F,0x84C87814,0x8CC70208,0x90BEFFFA,0xA4506CEB,0xBEF9A3F7,0xC67178F2);
+  var HASH = new Array(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19);
+    var W = new Array(64);
+    var a, b, c, d, e, f, g, h, i, j;
+    var T1, T2;
+  /* append padding */
+  m[l >> 5] |= 0x80 << (24 - l % 32);
+  m[((l + 64 >> 9) << 4) + 15] = l;
+  for (var i = 0; i < m.length; i += 16) {
+    a = HASH[0]; b = HASH[1]; c = HASH[2]; d = HASH[3]; e = HASH[4]; f = HASH[5]; g = HASH[6]; h = HASH[7];
+    for (var j = 0; j < 64; j++) {
+      if (j < 16) {
+        W[j] = m[j + i];
+      } else {
+        W[j] = safe_add(safe_add(safe_add(Gamma1256(W[j - 2]), W[j - 7]), Gamma0256(W[j - 15])), W[j - 16]);
+      }
+      T1 = safe_add(safe_add(safe_add(safe_add(h, Sigma1256(e)), Ch(e, f, g)), K[j]), W[j]);
+      T2 = safe_add(Sigma0256(a), Maj(a, b, c));
+      h = g; g = f; f = e; e = safe_add(d, T1); d = c; c = b; b = a; a = safe_add(T1, T2);
+    }
+    HASH[0] = safe_add(a, HASH[0]); HASH[1] = safe_add(b, HASH[1]); HASH[2] = safe_add(c, HASH[2]); HASH[3] = safe_add(d, HASH[3]);
+    HASH[4] = safe_add(e, HASH[4]); HASH[5] = safe_add(f, HASH[5]); HASH[6] = safe_add(g, HASH[6]); HASH[7] = safe_add(h, HASH[7]);
+  }
+  return HASH;
+};
+
+module.exports = function sha256(buf) {
+  return helpers.hash(buf, core_sha256, 32, true);
+};
+
+},{"./helpers":9}],15:[function(require,module,exports){
 /* NProgress, (c) 2013, 2014 Rico Sta. Cruz - http://ricostacruz.com/nprogress
  * @license MIT */
 
@@ -8730,7 +9248,451 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
 });
 
 
-},{}],10:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
+/**
+
+seedrandom.js
+=============
+
+Seeded random number generator for Javascript.
+
+version 2.3.11
+Author: David Bau
+Date: 2014 Dec 11
+
+Can be used as a plain script, a node.js module or an AMD module.
+
+Script tag usage
+----------------
+
+<script src=//cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.11/seedrandom.min.js>
+</script>
+
+// Sets Math.random to a PRNG initialized using the given explicit seed.
+Math.seedrandom('hello.');
+console.log(Math.random());          // Always 0.9282578795792454
+console.log(Math.random());          // Always 0.3752569768646784
+
+// Sets Math.random to an ARC4-based PRNG that is autoseeded using the
+// current time, dom state, and other accumulated local entropy.
+// The generated seed string is returned.
+Math.seedrandom();
+console.log(Math.random());          // Reasonably unpredictable.
+
+// Seeds using the given explicit seed mixed with accumulated entropy.
+Math.seedrandom('added entropy.', { entropy: true });
+console.log(Math.random());          // As unpredictable as added entropy.
+
+// Use "new" to create a local prng without altering Math.random.
+var myrng = new Math.seedrandom('hello.');
+console.log(myrng());                // Always 0.9282578795792454
+
+
+Node.js usage
+-------------
+
+npm install seedrandom
+
+// Local PRNG: does not affect Math.random.
+var seedrandom = require('seedrandom');
+var rng = seedrandom('hello.');
+console.log(rng());                  // Always 0.9282578795792454
+
+// Autoseeded ARC4-based PRNG.
+rng = seedrandom();
+console.log(rng());                  // Reasonably unpredictable.
+
+// Global PRNG: set Math.random.
+seedrandom('hello.', { global: true });
+console.log(Math.random());          // Always 0.9282578795792454
+
+// Mixing accumulated entropy.
+rng = seedrandom('added entropy.', { entropy: true });
+console.log(rng());                  // As unpredictable as added entropy.
+
+
+Require.js usage
+----------------
+
+Similar to node.js usage:
+
+bower install seedrandom
+
+require(['seedrandom'], function(seedrandom) {
+  var rng = seedrandom('hello.');
+  console.log(rng());                  // Always 0.9282578795792454
+});
+
+
+Network seeding
+---------------
+
+<script src=//cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.11/seedrandom.min.js>
+</script>
+
+<!-- Seeds using urandom bits from a server. -->
+<script src=//jsonlib.appspot.com/urandom?callback=Math.seedrandom">
+</script>
+
+<!-- Seeds mixing in random.org bits -->
+<script>
+(function(x, u, s){
+  try {
+    // Make a synchronous request to random.org.
+    x.open('GET', u, false);
+    x.send();
+    s = unescape(x.response.trim().replace(/^|\s/g, '%'));
+  } finally {
+    // Seed with the response, or autoseed on failure.
+    Math.seedrandom(s, !!s);
+  }
+})(new XMLHttpRequest, 'https://www.random.org/integers/' +
+  '?num=256&min=0&max=255&col=1&base=16&format=plain&rnd=new');
+</script>
+
+Reseeding using user input
+--------------------------
+
+var seed = Math.seedrandom();        // Use prng with an automatic seed.
+document.write(Math.random());       // Pretty much unpredictable x.
+
+var rng = new Math.seedrandom(seed); // A new prng with the same seed.
+document.write(rng());               // Repeat the 'unpredictable' x.
+
+function reseed(event, count) {      // Define a custom entropy collector.
+  var t = [];
+  function w(e) {
+    t.push([e.pageX, e.pageY, +new Date]);
+    if (t.length &lt; count) { return; }
+    document.removeEventListener(event, w);
+    Math.seedrandom(t, { entropy: true });
+  }
+  document.addEventListener(event, w);
+}
+reseed('mousemove', 100);            // Reseed after 100 mouse moves.
+
+The "pass" option can be used to get both the prng and the seed.
+The following returns both an autoseeded prng and the seed as an object,
+without mutating Math.random:
+
+var obj = Math.seedrandom(null, { pass: function(prng, seed) {
+  return { random: prng, seed: seed };
+}});
+
+
+Saving and Restoring PRNG state
+-------------------------------
+
+var seedrandom = Math.seedrandom;
+var saveable = seedrandom("secret-seed", {state: true});
+for (var j = 0; j < 1e5; ++j) saveable();
+var saved = saveable.state();
+var replica = seedrandom("", {state: saved});
+assert(replica() == saveable());
+
+In normal use the prng is opaque and its internal state cannot be accessed.
+However, if the "state" option is specified, the prng gets a state() method
+that returns a plain object the can be used to reconstruct a prng later in
+the same state (by passing that saved object back as the state option).
+
+
+Version notes
+-------------
+
+The random number sequence is the same as version 1.0 for string seeds.
+* Version 2.0 changed the sequence for non-string seeds.
+* Version 2.1 speeds seeding and uses window.crypto to autoseed if present.
+* Version 2.2 alters non-crypto autoseeding to sweep up entropy from plugins.
+* Version 2.3 adds support for "new", module loading, and a null seed arg.
+* Version 2.3.1 adds a build environment, module packaging, and tests.
+* Version 2.3.4 fixes bugs on IE8, and switches to MIT license.
+* Version 2.3.6 adds a readable options object argument.
+* Version 2.3.10 adds support for node.js crypto (contributed by ctd1500).
+* Version 2.3.11 adds an option to load and save internal state.
+
+The standard ARC4 key scheduler cycles short keys, which means that
+seedrandom('ab') is equivalent to seedrandom('abab') and 'ababab'.
+Therefore it is a good idea to add a terminator to avoid trivial
+equivalences on short string seeds, e.g., Math.seedrandom(str + '\0').
+Starting with version 2.0, a terminator is added automatically for
+non-string seeds, so seeding with the number 111 is the same as seeding
+with '111\0'.
+
+When seedrandom() is called with zero args or a null seed, it uses a
+seed drawn from the browser crypto object if present.  If there is no
+crypto support, seedrandom() uses the current time, the native rng,
+and a walk of several DOM objects to collect a few bits of entropy.
+
+Each time the one- or two-argument forms of seedrandom are called,
+entropy from the passed seed is accumulated in a pool to help generate
+future seeds for the zero- and two-argument forms of seedrandom.
+
+On speed - This javascript implementation of Math.random() is several
+times slower than the built-in Math.random() because it is not native
+code, but that is typically fast enough.  Some details (timings on
+Chrome 25 on a 2010 vintage macbook):
+
+* seeded Math.random()          - avg less than 0.0002 milliseconds per call
+* seedrandom('explicit.')       - avg less than 0.2 milliseconds per call
+* seedrandom('explicit.', true) - avg less than 0.2 milliseconds per call
+* seedrandom() with crypto      - avg less than 0.2 milliseconds per call
+
+Autoseeding without crypto is somewhat slower, about 20-30 milliseconds on
+a 2012 windows 7 1.5ghz i5 laptop, as seen on Firefox 19, IE 10, and Opera.
+Seeded rng calls themselves are fast across these browsers, with slowest
+numbers on Opera at about 0.0005 ms per seeded Math.random().
+
+
+LICENSE (MIT)
+-------------
+
+Copyright 2014 David Bau.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+*/
+
+/**
+ * All code is in an anonymous closure to keep the global namespace clean.
+ */
+(function (
+    global, pool, math, width, chunks, digits, module, define, rngname) {
+
+//
+// The following constants are related to IEEE 754 limits.
+//
+var startdenom = math.pow(width, chunks),
+    significance = math.pow(2, digits),
+    overflow = significance * 2,
+    mask = width - 1,
+    nodecrypto;
+
+//
+// seedrandom()
+// This is the seedrandom function described above.
+//
+var impl = math['seed' + rngname] = function(seed, options, callback) {
+  var key = [];
+  options = (options == true) ? { entropy: true } : (options || {});
+
+  // Flatten the seed string or build one from local entropy if needed.
+  var shortseed = mixkey(flatten(
+    options.entropy ? [seed, tostring(pool)] :
+    (seed == null) ? autoseed() : seed, 3), key);
+
+  // Use the seed to initialize an ARC4 generator.
+  var arc4 = new ARC4(key);
+
+  // Mix the randomness into accumulated entropy.
+  mixkey(tostring(arc4.S), pool);
+
+  // Calling convention: what to return as a function of prng, seed, is_math.
+  return (options.pass || callback ||
+      function(prng, seed, is_math_call, state) {
+        if (state) {
+          // Load the arc4 state from the given state if it has an S array.
+          if (state.S) { copy(state, arc4); }
+          // Only provide the .state method if requested via options.state.
+          prng.state = function() { return copy(arc4, {}); }
+        }
+
+        // If called as a method of Math (Math.seedrandom()), mutate
+        // Math.random because that is how seedrandom.js has worked since v1.0.
+        if (is_math_call) { math[rngname] = prng; return seed; }
+
+        // Otherwise, it is a newer calling convention, so return the
+        // prng directly.
+        else return prng;
+      })(
+
+  // This function returns a random double in [0, 1) that contains
+  // randomness in every bit of the mantissa of the IEEE 754 value.
+  function() {
+    var n = arc4.g(chunks),             // Start with a numerator n < 2 ^ 48
+        d = startdenom,                 //   and denominator d = 2 ^ 48.
+        x = 0;                          //   and no 'extra last byte'.
+    while (n < significance) {          // Fill up all significant digits by
+      n = (n + x) * width;              //   shifting numerator and
+      d *= width;                       //   denominator and generating a
+      x = arc4.g(1);                    //   new least-significant-byte.
+    }
+    while (n >= overflow) {             // To avoid rounding up, before adding
+      n /= 2;                           //   last byte, shift everything
+      d /= 2;                           //   right using integer math until
+      x >>>= 1;                         //   we have exactly the desired bits.
+    }
+    return (n + x) / d;                 // Form the number within [0, 1).
+  },
+  shortseed,
+  'global' in options ? options.global : (this == math),
+  options.state);
+};
+
+//
+// ARC4
+//
+// An ARC4 implementation.  The constructor takes a key in the form of
+// an array of at most (width) integers that should be 0 <= x < (width).
+//
+// The g(count) method returns a pseudorandom integer that concatenates
+// the next (count) outputs from ARC4.  Its return value is a number x
+// that is in the range 0 <= x < (width ^ count).
+//
+/** @constructor */
+function ARC4(key) {
+  var t, keylen = key.length,
+      me = this, i = 0, j = me.i = me.j = 0, s = me.S = [];
+
+  // The empty key [] is treated as [0].
+  if (!keylen) { key = [keylen++]; }
+
+  // Set up S using the standard key scheduling algorithm.
+  while (i < width) {
+    s[i] = i++;
+  }
+  for (i = 0; i < width; i++) {
+    s[i] = s[j = mask & (j + key[i % keylen] + (t = s[i]))];
+    s[j] = t;
+  }
+
+  // The "g" method returns the next (count) outputs as one number.
+  (me.g = function(count) {
+    // Using instance members instead of closure state nearly doubles speed.
+    var t, r = 0,
+        i = me.i, j = me.j, s = me.S;
+    while (count--) {
+      t = s[i = mask & (i + 1)];
+      r = r * width + s[mask & ((s[i] = s[j = mask & (j + t)]) + (s[j] = t))];
+    }
+    me.i = i; me.j = j;
+    return r;
+    // For robust unpredictability, the function call below automatically
+    // discards an initial batch of values.  This is called RC4-drop[256].
+    // See http://google.com/search?q=rsa+fluhrer+response&btnI
+  })(width);
+}
+
+//
+// copy()
+// Copies internal state of ARC4 to or from a plain object.
+//
+function copy(f, t) {
+  t.i = f.i;
+  t.j = f.j;
+  t.S = f.S.slice();
+  return t;
+};
+
+//
+// flatten()
+// Converts an object tree to nested arrays of strings.
+//
+function flatten(obj, depth) {
+  var result = [], typ = (typeof obj), prop;
+  if (depth && typ == 'object') {
+    for (prop in obj) {
+      try { result.push(flatten(obj[prop], depth - 1)); } catch (e) {}
+    }
+  }
+  return (result.length ? result : typ == 'string' ? obj : obj + '\0');
+}
+
+//
+// mixkey()
+// Mixes a string seed into a key that is an array of integers, and
+// returns a shortened string seed that is equivalent to the result key.
+//
+function mixkey(seed, key) {
+  var stringseed = seed + '', smear, j = 0;
+  while (j < stringseed.length) {
+    key[mask & j] =
+      mask & ((smear ^= key[mask & j] * 19) + stringseed.charCodeAt(j++));
+  }
+  return tostring(key);
+}
+
+//
+// autoseed()
+// Returns an object for autoseeding, using window.crypto if available.
+//
+/** @param {Uint8Array|Navigator=} seed */
+function autoseed(seed) {
+  try {
+    if (nodecrypto) return tostring(nodecrypto.randomBytes(width));
+    global.crypto.getRandomValues(seed = new Uint8Array(width));
+    return tostring(seed);
+  } catch (e) {
+    return [+new Date, global, (seed = global.navigator) && seed.plugins,
+      global.screen, tostring(pool)];
+  }
+}
+
+//
+// tostring()
+// Converts an array of charcodes to a string
+//
+function tostring(a) {
+  return String.fromCharCode.apply(0, a);
+}
+
+//
+// When seedrandom.js is loaded, we immediately mix a few bits
+// from the built-in RNG into the entropy pool.  Because we do
+// not want to interfere with deterministic PRNG state later,
+// seedrandom will not call math.random on its own again after
+// initialization.
+//
+mixkey(math[rngname](), pool);
+
+//
+// Nodejs and AMD support: export the implementation as a module using
+// either convention.
+//
+if (module && module.exports) {
+  module.exports = impl;
+  try {
+    // When in node.js, try using crypto package for autoseeding.
+    nodecrypto = require('crypto');
+  } catch (ex) {}
+} else if (define && define.amd) {
+  define(function() { return impl; });
+}
+
+//
+// Node.js native crypto support.
+//
+
+// End anonymous scope, and pass initial values.
+})(
+  this,   // global window object
+  [],     // pool: entropy pool starts empty
+  Math,   // math: package containing random, pow, and seedrandom
+  256,    // width: each RC4 output is 0 <= x < 256
+  6,      // chunks: at least six RC4 outputs for each double
+  52,     // digits: there are 52 significant digits in a double
+  (typeof module) == 'object' && module,    // present in node.js
+  (typeof define) == 'function' && define,  // present with an AMD loader
+  'random'// rngname: name for Math.random and Math.seedrandom
+);
+
+},{"crypto":10}],17:[function(require,module,exports){
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -8880,7 +9842,7 @@ if ( typeof module === 'object' ) {
 	module.exports = Stats;
 
 }
-},{}],11:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -43440,7 +44402,7 @@ if (typeof exports !== 'undefined') {
   this['THREE'] = THREE;
 }
 
-},{}],12:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 // TinyColor v1.1.2
 // https://github.com/bgrins/TinyColor
 // Brian Grinstead, MIT License
@@ -44605,7 +45567,7 @@ else {
 
 })();
 
-},{}],13:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -46155,7 +47117,7 @@ else {
   }
 }.call(this));
 
-},{}],14:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 var _                = require('underscore');
@@ -46163,6 +47125,7 @@ var THREE            = require('three');
 var FastSimplexNoise = require('fast-simplex-noise');
 var tinycolor        = require('tinycolor2');
 var Chance           = require('chance');
+var seedrandom       = require('seedrandom');
 var models           = require('../models');
 var Voxel            = require('./voxel');
 
@@ -46186,15 +47149,18 @@ var Building = function(parent, x, y, width, height, depth) {
   this.octaves = 16;
   this.persistence = 0.5;
 
+  this.solidChance = 0.65;
   this.roofPointChance = 0.6;
   this.wallWindowChance = 0.3;
   this.wallDoorChance = 0.1;
   this.bannerChance = 0.1;
   this.shieldChance = 0.1;
 
-  this.heightDampener = 4;
+  this.heightDampener = 0.125;
 
   this.fenceChance = 0.4;
+  this.seed = 0;
+  this.randomSeed();
 
   this.x = x;
   this.y = y;
@@ -46218,7 +47184,13 @@ Building.prototype.isSolid = function(x, y, z) {
     return false;
   }
 
-  return this.noiseGen.get3DNoise(x, y, z) - y / this.heightDampener > 0; 
+  var n = (this.noiseGen.get3DNoise(x, y, z) + 1) / 2;
+  n = n - y * this.heightDampener;
+  n = Math.max(n, 0);
+
+  var solid = n > (1 - this.solidChance);
+
+  return solid; 
 };
 
 Building.prototype.isBorder = function(x, y, z) {
@@ -46256,17 +47228,21 @@ Building.prototype.isOutside = function(x, y, z) {
 Building.prototype.generate = function() {
   var self = this;
 
+  this.rng = seedrandom(this.seed);
+  chance.random = this.rng;
+
   this.noiseGen = new FastSimplexNoise({ 
     frequency: this.frequency, 
     octaves: this.octaves,
     amplitude: this.amplitude,
-    persistence: this.persistence
+    persistence: this.persistence,
+    random: this.rng
   });
 
   this.group.remove.apply(this.group, this.group.children);
 
   this.colors = _.chain(colors)
-    .mapObject(_.sample)
+    .mapObject(function(colors) { return chance.pick(colors); })
     .mapObject(function(color) {
       var rgb = tinycolor(color).toRgb();
       
@@ -46279,7 +47255,7 @@ Building.prototype.generate = function() {
     })
     .value();
 
-  var hasFence = Math.random() < this.fenceChance;
+  var hasFence = this.rng() < this.fenceChance;
 
   for(var x = -this.width / 2; x < this.width / 2; x++) {
     for(var y = 0; y < this.height; y++) {
@@ -46341,6 +47317,14 @@ Building.prototype.generate = function() {
   this.parent.add(this.mesh);
 };
 
+Building.prototype.randomSeed = function() {
+  this.seed = Math.round(Math.random() * 10000);
+};
+
+Building.prototype.generateRandomSeed = function() {
+  this.randomSeed();
+  this.generate();
+};
 
 Building.prototype._setFloor = function(voxel) {
   var floor;
@@ -46364,14 +47348,14 @@ Building.prototype._setRoof = function(voxel) {
 
   if(voxel.solid && !voxel.up) {
     if(!voxel.north && !voxel.east && !voxel.south && !voxel.west) {
-      if(Math.random() < this.roofPointChance) {
+      if(this.rng() < this.roofPointChance) {
         roof = models.get('Roof_Point_Green_01');
         position.y += 1.2;
       }
       else {
         roof = models.get('Roof_Straight_Green_01');
         position.y += 1.2;
-        rotation.y = (Math.random() > 0.5) ? Math.PI / 2 : 0;
+        rotation.y = (this.rng() > 0.5) ? Math.PI / 2 : 0;
       }
     }
     else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
@@ -46431,22 +47415,22 @@ Building.prototype._setWalls = function(voxel) {
     var side = sides[i];
 
     if(!side[0]) {
-      if(voxel.y === 0 && Math.random() < this.wallDoorChance) {
+      if(voxel.y === 0 && this.rng() < this.wallDoorChance) {
         wall = models.get('Wood_Door_Round_01');
       }
-      else if(Math.random() < this.wallWindowChance) {
+      else if(this.rng() < this.wallWindowChance) {
         wall = models.get('Wood_Window_Round_01');
       }
       else {
 
-        type = _.sample([
+        type = chance.pick([
           'Wood_Wall_01', 
           'Wood_Wall_Double_Cross_01', 
           'Wood_Wall_Cross_01'
         ]);
         wall = models.get(type);
 
-        if(type === 'Wood_Wall_01' && Math.random() < this.bannerChance) {
+        if(type === 'Wood_Wall_01' && this.rng() < this.bannerChance) {
           var banner = models.get('Banner_Short_01');
 
           banner.rotation.y = Math.PI / 2;
@@ -46455,7 +47439,7 @@ Building.prototype._setWalls = function(voxel) {
 
           wall.add(banner);
         }
-        else if(type === 'Wood_Wall_01' && Math.random() < this.shieldChance) {
+        else if(type === 'Wood_Wall_01' && this.rng() < this.shieldChance) {
           var shield = models.get('Shield_Green_01');
 
           shield.rotation.y = 0; 
@@ -46480,12 +47464,12 @@ Building.prototype._setPillars = function(voxel) {
   if(voxel.solid) { return; }
 
   if(voxel.ceiling) {
-    var pillar;
+    var pillar; 
     var pillars = {
-      northWest: { place: true, x: -1.2, z: -1.2 },
-      northEast: { place: true, x: -1.2, z: 1.2 },
-      southWest: { place: true, x: 1.2, z: -1.2 },
-      southEast: { place: true, x: 1.2, z: 1.2 }
+      northWest: { place: true, x: -1.2, z: -1.2, rot: 0 },
+      northEast: { place: true, x: -1.2, z: 1.2, rot: Math.PI / 2 },
+      southWest: { place: true, x: 1.2, z: -1.2, rot: Math.PI / -2 },
+      southEast: { place: true, x: 1.2, z: 1.2, rot: Math.PI }
     };
 
     if(voxel.north && voxel.west) {
@@ -46510,6 +47494,7 @@ Building.prototype._setPillars = function(voxel) {
       pillar.position.x = voxel.x * X + value.x;
       pillar.position.y = voxel.y * Y - 1.25;
       pillar.position.z = voxel.z * Z + value.z;
+      pillar.rotation.y = value.rot;
       this.group.add(pillar);
     }, this);
   }
@@ -46546,7 +47531,7 @@ Building.prototype._setFence = function(voxel) {
 
 module.exports = Building;
 
-},{"../models":17,"./voxel":15,"chance":1,"fast-simplex-noise":5,"three":11,"tinycolor2":12,"underscore":13}],15:[function(require,module,exports){
+},{"../models":24,"./voxel":22,"chance":1,"fast-simplex-noise":5,"seedrandom":16,"three":18,"tinycolor2":19,"underscore":20}],22:[function(require,module,exports){
 'use strict';
 
 var _ = require('underscore');
@@ -46582,7 +47567,7 @@ var Voxel = function(parent, x, y, z) {
 };
 
 module.exports = Voxel;
-},{"underscore":13}],16:[function(require,module,exports){
+},{"underscore":20}],23:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -46645,17 +47630,20 @@ models.load(function() {
   var building = new Building(scene, 0, 0, 4, 3, 4);
   building.generate();
 
+  global.building = building;
+
   var gui = new Dat.GUI();
   gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
   gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
   gui.add(building, 'octaves').min(1).max(64).step(1);
   gui.add(building, 'persistence').min(0).max(1);
-  gui.add(building, 'heightDampener').min(1).max(16);
+  gui.add(building, 'heightDampener').min(0).max(1);
   
   gui.add(building, 'width').min(1).max(15).step(1);
   gui.add(building, 'height').min(1).max(15).step(1);
   gui.add(building, 'depth').min(1).max(15).step(1);
 
+  gui.add(building, 'solidChance').min(0).max(1);
   gui.add(building, 'roofPointChance').min(0).max(1);
   gui.add(building, 'wallDoorChance').min(0).max(1);
   gui.add(building, 'wallWindowChance').min(0).max(1);
@@ -46663,6 +47651,9 @@ models.load(function() {
   gui.add(building, 'shieldChance').min(0).max(1);
   gui.add(building, 'fenceChance').min(0).max(1);
 
+  gui.add(building, 'seed').min(0).max(10000).listen();
+
+  gui.add(building, 'generateRandomSeed');
   gui.add(building, 'generate');
 });
 
@@ -46681,7 +47672,7 @@ var render = function () {
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./building/building":14,"./models":17,"./plugins/MTLLoader":19,"./plugins/OBJMTLLoader":20,"./plugins/OrbitControls":21,"chance":1,"dat-gui":2,"stats.js":10,"three":11,"underscore":13}],17:[function(require,module,exports){
+},{"./building/building":21,"./models":24,"./plugins/MTLLoader":26,"./plugins/OBJMTLLoader":27,"./plugins/OrbitControls":28,"chance":1,"dat-gui":2,"stats.js":17,"three":18,"underscore":20}],24:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -46727,7 +47718,7 @@ exports.get = function(objectName) {
   return cache[objectName].clone();
 };
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./objects":18,"./plugins/MTLLoader":19,"./plugins/OBJMTLLoader":20,"nprogress":9,"three":11,"underscore":13}],18:[function(require,module,exports){
+},{"./objects":25,"./plugins/MTLLoader":26,"./plugins/OBJMTLLoader":27,"nprogress":15,"three":18,"underscore":20}],25:[function(require,module,exports){
 module.exports=[
   "Banner_01",
   "Banner_Short_01",
@@ -46783,6 +47774,7 @@ module.exports=[
   "Wood_Door_Round_01",
   "Wood_Door_Square_01",
   "Wood_Pole_01",
+  "Wood_Pole_Cross_01",
   "Wood_Railing_01",
   "Wood_Slanted_Pole_01",
   "Wood_Slanted_Wall_01",
@@ -46799,7 +47791,7 @@ module.exports=[
   "Wood_Window_Square_01",
   "Wood_Window_Square_Sill_01"
 ]
-},{}],19:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 (function (global){
 /**
  * Loads a Wavefront .mtl file specifying materials
@@ -47253,7 +48245,7 @@ THREE.MTLLoader.nextHighestPowerOfTwo_ = function( x ) {
 THREE.EventDispatcher.prototype.apply( THREE.MTLLoader.prototype );
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],20:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 /**
  * Loads a Wavefront .obj file with materials
  *
@@ -47619,7 +48611,7 @@ THREE.OBJMTLLoader.prototype = {
 };
 
 THREE.EventDispatcher.prototype.apply( THREE.OBJMTLLoader.prototype );
-},{}],21:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 /**
  * @author qiao / https://github.com/qiao
  * @author mrdoob / http://mrdoob.com
@@ -48326,4 +49318,4 @@ THREE.OrbitControls = function ( object, domElement ) {
 
 THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
 THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-},{}]},{},[16])
+},{}]},{},[23])

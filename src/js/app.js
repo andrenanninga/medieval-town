@@ -59,17 +59,20 @@ models.load(function() {
   var building = new Building(scene, 0, 0, 4, 3, 4);
   building.generate();
 
+  global.building = building;
+
   var gui = new Dat.GUI();
   gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
   gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
   gui.add(building, 'octaves').min(1).max(64).step(1);
   gui.add(building, 'persistence').min(0).max(1);
-  gui.add(building, 'heightDampener').min(1).max(16);
+  gui.add(building, 'heightDampener').min(0).max(1);
   
   gui.add(building, 'width').min(1).max(15).step(1);
   gui.add(building, 'height').min(1).max(15).step(1);
   gui.add(building, 'depth').min(1).max(15).step(1);
 
+  gui.add(building, 'solidChance').min(0).max(1);
   gui.add(building, 'roofPointChance').min(0).max(1);
   gui.add(building, 'wallDoorChance').min(0).max(1);
   gui.add(building, 'wallWindowChance').min(0).max(1);
@@ -77,6 +80,9 @@ models.load(function() {
   gui.add(building, 'shieldChance').min(0).max(1);
   gui.add(building, 'fenceChance').min(0).max(1);
 
+  gui.add(building, 'seed').min(0).max(10000).listen();
+
+  gui.add(building, 'generateRandomSeed');
   gui.add(building, 'generate');
 });
 
