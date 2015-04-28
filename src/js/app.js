@@ -36,7 +36,7 @@ stats.domElement.style.left = '0px';
 stats.domElement.style.top = '0px';
 document.body.appendChild(stats.domElement);
 
-var light = new THREE.AmbientLight(0x333333);
+var light = new THREE.AmbientLight(0x222222);
 scene.add( light );
 
 var light = new THREE.PointLight( 0xffffff, 0.8, 1000 );
