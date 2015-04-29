@@ -9249,6 +9249,990 @@ module.exports = function sha256(buf) {
 
 
 },{}],16:[function(require,module,exports){
+// Version 0.5.0 - Copyright 2012 - 2015 -  Jim Riecken <jimr@jimr.ca>
+//
+// Released under the MIT License - https://github.com/jriecken/sat-js
+//
+// A simple library for determining intersections of circles and
+// polygons using the Separating Axis Theorem.
+/** @preserve SAT.js - Version 0.5.0 - Copyright 2012 - 2015 - Jim Riecken <jimr@jimr.ca> - released under the MIT License. https://github.com/jriecken/sat-js */
+
+/*global define: false, module: false*/
+/*jshint shadow:true, sub:true, forin:true, noarg:true, noempty:true, 
+  eqeqeq:true, bitwise:true, strict:true, undef:true, 
+  curly:true, browser:true */
+
+// Create a UMD wrapper for SAT. Works in:
+//
+//  - Plain browser via global SAT variable
+//  - AMD loader (like require.js)
+//  - Node.js
+//
+// The quoted properties all over the place are used so that the Closure Compiler
+// does not mangle the exposed API in advanced mode.
+/**
+ * @param {*} root - The global scope
+ * @param {Function} factory - Factory that creates SAT module
+ */
+(function (root, factory) {
+  "use strict";
+  if (typeof define === 'function' && define['amd']) {
+    define(factory);
+  } else if (typeof exports === 'object') {
+    module['exports'] = factory();
+  } else {
+    root['SAT'] = factory();
+  }
+}(this, function () {
+  "use strict";
+
+  var SAT = {};
+
+  //
+  // ## Vector
+  //
+  // Represents a vector in two dimensions with `x` and `y` properties.
+
+
+  // Create a new Vector, optionally passing in the `x` and `y` coordinates. If
+  // a coordinate is not specified, it will be set to `0`
+  /** 
+   * @param {?number=} x The x position.
+   * @param {?number=} y The y position.
+   * @constructor
+   */
+  function Vector(x, y) {
+    this['x'] = x || 0;
+    this['y'] = y || 0;
+  }
+  SAT['Vector'] = Vector;
+  // Alias `Vector` as `V`
+  SAT['V'] = Vector;
+
+
+  // Copy the values of another Vector into this one.
+  /**
+   * @param {Vector} other The other Vector.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['copy'] = Vector.prototype.copy = function(other) {
+    this['x'] = other['x'];
+    this['y'] = other['y'];
+    return this;
+  };
+
+  // Create a new vector with the same coordinates as this on.
+  /**
+   * @return {Vector} The new cloned vector
+   */
+  Vector.prototype['clone'] = Vector.prototype.clone = function() {
+    return new Vector(this['x'], this['y']);
+  };
+
+  // Change this vector to be perpendicular to what it was before. (Effectively
+  // roatates it 90 degrees in a clockwise direction)
+  /**
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['perp'] = Vector.prototype.perp = function() {
+    var x = this['x'];
+    this['x'] = this['y'];
+    this['y'] = -x;
+    return this;
+  };
+
+  // Rotate this vector (counter-clockwise) by the specified angle (in radians).
+  /**
+   * @param {number} angle The angle to rotate (in radians)
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['rotate'] = Vector.prototype.rotate = function (angle) {
+    var x = this['x'];
+    var y = this['y'];
+    this['x'] = x * Math.cos(angle) - y * Math.sin(angle);
+    this['y'] = x * Math.sin(angle) + y * Math.cos(angle);
+    return this;
+  };
+
+  // Reverse this vector.
+  /**
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['reverse'] = Vector.prototype.reverse = function() {
+    this['x'] = -this['x'];
+    this['y'] = -this['y'];
+    return this;
+  };
+  
+
+  // Normalize this vector.  (make it have length of `1`)
+  /**
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['normalize'] = Vector.prototype.normalize = function() {
+    var d = this.len();
+    if(d > 0) {
+      this['x'] = this['x'] / d;
+      this['y'] = this['y'] / d;
+    }
+    return this;
+  };
+  
+  // Add another vector to this one.
+  /**
+   * @param {Vector} other The other Vector.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['add'] = Vector.prototype.add = function(other) {
+    this['x'] += other['x'];
+    this['y'] += other['y'];
+    return this;
+  };
+  
+  // Subtract another vector from this one.
+  /**
+   * @param {Vector} other The other Vector.
+   * @return {Vector} This for chaiing.
+   */
+  Vector.prototype['sub'] = Vector.prototype.sub = function(other) {
+    this['x'] -= other['x'];
+    this['y'] -= other['y'];
+    return this;
+  };
+  
+  // Scale this vector. An independant scaling factor can be provided
+  // for each axis, or a single scaling factor that will scale both `x` and `y`.
+  /**
+   * @param {number} x The scaling factor in the x direction.
+   * @param {?number=} y The scaling factor in the y direction.  If this
+   *   is not specified, the x scaling factor will be used.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['scale'] = Vector.prototype.scale = function(x,y) {
+    this['x'] *= x;
+    this['y'] *= y || x;
+    return this; 
+  };
+  
+  // Project this vector on to another vector.
+  /**
+   * @param {Vector} other The vector to project onto.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['project'] = Vector.prototype.project = function(other) {
+    var amt = this.dot(other) / other.len2();
+    this['x'] = amt * other['x'];
+    this['y'] = amt * other['y'];
+    return this;
+  };
+  
+  // Project this vector onto a vector of unit length. This is slightly more efficient
+  // than `project` when dealing with unit vectors.
+  /**
+   * @param {Vector} other The unit vector to project onto.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['projectN'] = Vector.prototype.projectN = function(other) {
+    var amt = this.dot(other);
+    this['x'] = amt * other['x'];
+    this['y'] = amt * other['y'];
+    return this;
+  };
+  
+  // Reflect this vector on an arbitrary axis.
+  /**
+   * @param {Vector} axis The vector representing the axis.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['reflect'] = Vector.prototype.reflect = function(axis) {
+    var x = this['x'];
+    var y = this['y'];
+    this.project(axis).scale(2);
+    this['x'] -= x;
+    this['y'] -= y;
+    return this;
+  };
+  
+  // Reflect this vector on an arbitrary axis (represented by a unit vector). This is
+  // slightly more efficient than `reflect` when dealing with an axis that is a unit vector.
+  /**
+   * @param {Vector} axis The unit vector representing the axis.
+   * @return {Vector} This for chaining.
+   */
+  Vector.prototype['reflectN'] = Vector.prototype.reflectN = function(axis) {
+    var x = this['x'];
+    var y = this['y'];
+    this.projectN(axis).scale(2);
+    this['x'] -= x;
+    this['y'] -= y;
+    return this;
+  };
+  
+  // Get the dot product of this vector and another.
+  /**
+   * @param {Vector}  other The vector to dot this one against.
+   * @return {number} The dot product.
+   */
+  Vector.prototype['dot'] = Vector.prototype.dot = function(other) {
+    return this['x'] * other['x'] + this['y'] * other['y'];
+  };
+  
+  // Get the squared length of this vector.
+  /**
+   * @return {number} The length^2 of this vector.
+   */
+  Vector.prototype['len2'] = Vector.prototype.len2 = function() {
+    return this.dot(this);
+  };
+  
+  // Get the length of this vector.
+  /**
+   * @return {number} The length of this vector.
+   */
+  Vector.prototype['len'] = Vector.prototype.len = function() {
+    return Math.sqrt(this.len2());
+  };
+  
+  // ## Circle
+  //
+  // Represents a circle with a position and a radius.
+
+  // Create a new circle, optionally passing in a position and/or radius. If no position
+  // is given, the circle will be at `(0,0)`. If no radius is provided, the circle will
+  // have a radius of `0`.
+  /**
+   * @param {Vector=} pos A vector representing the position of the center of the circle
+   * @param {?number=} r The radius of the circle
+   * @constructor
+   */
+  function Circle(pos, r) {
+    this['pos'] = pos || new Vector();
+    this['r'] = r || 0;
+  }
+  SAT['Circle'] = Circle;
+  
+  // Compute the axis-aligned bounding box (AABB) of this Circle.
+  //
+  // Note: Returns a _new_ `Polygon` each time you call this.
+  /**
+   * @return {Polygon} The AABB
+   */
+  Circle.prototype['getAABB'] = Circle.prototype.getAABB = function() {
+    var r = this['r'];
+    var corner = this["pos"].clone().sub(new Vector(r, r));
+    return new Box(corner, r*2, r*2).toPolygon();
+  };
+
+  // ## Polygon
+  //
+  // Represents a *convex* polygon with any number of points (specified in counter-clockwise order)
+  //
+  // Note: Do _not_ manually change the `points`, `angle`, or `offset` properties. Use the
+  // provided setters. Otherwise the calculated properties will not be updated correctly.
+  //
+  // `pos` can be changed directly.
+
+  // Create a new polygon, passing in a position vector, and an array of points (represented
+  // by vectors relative to the position vector). If no position is passed in, the position
+  // of the polygon will be `(0,0)`.
+  /**
+   * @param {Vector=} pos A vector representing the origin of the polygon. (all other
+   *   points are relative to this one)
+   * @param {Array.<Vector>=} points An array of vectors representing the points in the polygon,
+   *   in counter-clockwise order.
+   * @constructor
+   */
+  function Polygon(pos, points) {
+    this['pos'] = pos || new Vector();
+    this['angle'] = 0;
+    this['offset'] = new Vector();
+    this.setPoints(points || []);
+  }
+  SAT['Polygon'] = Polygon;
+  
+  // Set the points of the polygon.
+  /**
+   * @param {Array.<Vector>=} points An array of vectors representing the points in the polygon,
+   *   in counter-clockwise order.
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype['setPoints'] = Polygon.prototype.setPoints = function(points) {
+    // Only re-allocate if this is a new polygon or the number of points has changed.
+    var lengthChanged = !this['points'] || this['points'].length !== points.length;
+    if (lengthChanged) {
+      var i;
+      var calcPoints = this['calcPoints'] = [];
+      var edges = this['edges'] = [];
+      var normals = this['normals'] = [];
+      // Allocate the vector arrays for the calculated properties
+      for (i = 0; i < points.length; i++) {
+        calcPoints.push(new Vector());
+        edges.push(new Vector());
+        normals.push(new Vector());
+      }
+    }
+    this['points'] = points;
+    this._recalc();
+    return this;
+  };
+
+  // Set the current rotation angle of the polygon.
+  /**
+   * @param {number} angle The current rotation angle (in radians).
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype['setAngle'] = Polygon.prototype.setAngle = function(angle) {
+    this['angle'] = angle;
+    this._recalc();
+    return this;
+  };
+
+  // Set the current offset to apply to the `points` before applying the `angle` rotation.
+  /**
+   * @param {Vector} offset The new offset vector.
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype['setOffset'] = Polygon.prototype.setOffset = function(offset) {
+    this['offset'] = offset;
+    this._recalc();
+    return this;
+  };
+
+  // Rotates this polygon counter-clockwise around the origin of *its local coordinate system* (i.e. `pos`).
+  //
+  // Note: This changes the **original** points (so any `angle` will be applied on top of this rotation).
+  /**
+   * @param {number} angle The angle to rotate (in radians)
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype['rotate'] = Polygon.prototype.rotate = function(angle) {
+    var points = this['points'];
+    var len = points.length;
+    for (var i = 0; i < len; i++) {
+      points[i].rotate(angle);
+    }
+    this._recalc();
+    return this;
+  };
+
+  // Translates the points of this polygon by a specified amount relative to the origin of *its own coordinate
+  // system* (i.e. `pos`).
+  //
+  // This is most useful to change the "center point" of a polygon. If you just want to move the whole polygon, change
+  // the coordinates of `pos`.
+  //
+  // Note: This changes the **original** points (so any `offset` will be applied on top of this translation)
+  /**
+   * @param {number} x The horizontal amount to translate.
+   * @param {number} y The vertical amount to translate.
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype['translate'] = Polygon.prototype.translate = function (x, y) {
+    var points = this['points'];
+    var len = points.length;
+    for (var i = 0; i < len; i++) {
+      points[i].x += x;
+      points[i].y += y;
+    }
+    this._recalc();
+    return this;
+  };
+
+
+  // Computes the calculated collision polygon. Applies the `angle` and `offset` to the original points then recalculates the
+  // edges and normals of the collision polygon.
+  /**
+   * @return {Polygon} This for chaining.
+   */
+  Polygon.prototype._recalc = function() {
+    // Calculated points - this is what is used for underlying collisions and takes into account
+    // the angle/offset set on the polygon.
+    var calcPoints = this['calcPoints'];
+    // The edges here are the direction of the `n`th edge of the polygon, relative to
+    // the `n`th point. If you want to draw a given edge from the edge value, you must
+    // first translate to the position of the starting point.
+    var edges = this['edges'];
+    // The normals here are the direction of the normal for the `n`th edge of the polygon, relative
+    // to the position of the `n`th point. If you want to draw an edge normal, you must first
+    // translate to the position of the starting point.
+    var normals = this['normals'];
+    // Copy the original points array and apply the offset/angle
+    var points = this['points'];
+    var offset = this['offset'];
+    var angle = this['angle'];
+    var len = points.length;
+    var i;
+    for (i = 0; i < len; i++) {
+      var calcPoint = calcPoints[i].copy(points[i]);
+      calcPoint.x += offset.x;
+      calcPoint.y += offset.y;
+      if (angle !== 0) {
+        calcPoint.rotate(angle);
+      }
+    }
+    // Calculate the edges/normals
+    for (i = 0; i < len; i++) {
+      var p1 = calcPoints[i];
+      var p2 = i < len - 1 ? calcPoints[i + 1] : calcPoints[0];
+      var e = edges[i].copy(p2).sub(p1);
+      normals[i].copy(e).perp().normalize();
+    }
+    return this;
+  };
+  
+  
+  // Compute the axis-aligned bounding box. Any current state
+  // (translations/rotations) will be applied before constructing the AABB.
+  //
+  // Note: Returns a _new_ `Polygon` each time you call this.
+  /**
+   * @return {Polygon} The AABB
+   */
+  Polygon.prototype["getAABB"] = Polygon.prototype.getAABB = function() {
+    var points = this["calcPoints"];
+    var len = points.length;
+    var xMin = points[0]["x"];
+    var yMin = points[0]["y"];
+    var xMax = points[0]["x"];
+    var yMax = points[0]["y"];
+    for (var i = 1; i < len; i++) {
+      var point = points[i];
+      if (point["x"] < xMin) {
+        xMin = point["x"];
+      }
+      else if (point["x"] > xMax) {
+        xMax = point["x"];
+      }
+      if (point["y"] < yMin) {
+        yMin = point["y"];
+      }
+      else if (point["y"] > yMax) {
+        yMax = point["y"];
+      }
+    }
+    return new Box(this["pos"].clone().add(new Vector(xMin, yMin)), xMax - xMin, yMax - yMin).toPolygon();
+  };
+  
+
+  // ## Box
+  //
+  // Represents an axis-aligned box, with a width and height.
+
+
+  // Create a new box, with the specified position, width, and height. If no position
+  // is given, the position will be `(0,0)`. If no width or height are given, they will
+  // be set to `0`.
+  /**
+   * @param {Vector=} pos A vector representing the top-left of the box.
+   * @param {?number=} w The width of the box.
+   * @param {?number=} h The height of the box.
+   * @constructor
+   */
+  function Box(pos, w, h) {
+    this['pos'] = pos || new Vector();
+    this['w'] = w || 0;
+    this['h'] = h || 0;
+  }
+  SAT['Box'] = Box;
+
+  // Returns a polygon whose edges are the same as this box.
+  /**
+   * @return {Polygon} A new Polygon that represents this box.
+   */
+  Box.prototype['toPolygon'] = Box.prototype.toPolygon = function() {
+    var pos = this['pos'];
+    var w = this['w'];
+    var h = this['h'];
+    return new Polygon(new Vector(pos['x'], pos['y']), [
+     new Vector(), new Vector(w, 0), 
+     new Vector(w,h), new Vector(0,h)
+    ]);
+  };
+  
+  // ## Response
+  //
+  // An object representing the result of an intersection. Contains:
+  //  - The two objects participating in the intersection
+  //  - The vector representing the minimum change necessary to extract the first object
+  //    from the second one (as well as a unit vector in that direction and the magnitude
+  //    of the overlap)
+  //  - Whether the first object is entirely inside the second, and vice versa.
+  /**
+   * @constructor
+   */  
+  function Response() {
+    this['a'] = null;
+    this['b'] = null;
+    this['overlapN'] = new Vector();
+    this['overlapV'] = new Vector();
+    this.clear();
+  }
+  SAT['Response'] = Response;
+
+  // Set some values of the response back to their defaults.  Call this between tests if
+  // you are going to reuse a single Response object for multiple intersection tests (recommented
+  // as it will avoid allcating extra memory)
+  /**
+   * @return {Response} This for chaining
+   */
+  Response.prototype['clear'] = Response.prototype.clear = function() {
+    this['aInB'] = true;
+    this['bInA'] = true;
+    this['overlap'] = Number.MAX_VALUE;
+    return this;
+  };
+
+  // ## Object Pools
+
+  // A pool of `Vector` objects that are used in calculations to avoid
+  // allocating memory.
+  /**
+   * @type {Array.<Vector>}
+   */
+  var T_VECTORS = [];
+  for (var i = 0; i < 10; i++) { T_VECTORS.push(new Vector()); }
+  
+  // A pool of arrays of numbers used in calculations to avoid allocating
+  // memory.
+  /**
+   * @type {Array.<Array.<number>>}
+   */
+  var T_ARRAYS = [];
+  for (var i = 0; i < 5; i++) { T_ARRAYS.push([]); }
+
+  // Temporary response used for polygon hit detection.
+  /**
+   * @type {Response}
+   */
+  var T_RESPONSE = new Response();
+
+  // Unit square polygon used for polygon hit detection.
+  /**
+   * @type {Polygon}
+   */
+  var UNIT_SQUARE = new Box(new Vector(), 1, 1).toPolygon();
+
+  // ## Helper Functions
+
+  // Flattens the specified array of points onto a unit vector axis,
+  // resulting in a one dimensional range of the minimum and
+  // maximum value on that axis.
+  /**
+   * @param {Array.<Vector>} points The points to flatten.
+   * @param {Vector} normal The unit vector axis to flatten on.
+   * @param {Array.<number>} result An array.  After calling this function,
+   *   result[0] will be the minimum value,
+   *   result[1] will be the maximum value.
+   */
+  function flattenPointsOn(points, normal, result) {
+    var min = Number.MAX_VALUE;
+    var max = -Number.MAX_VALUE;
+    var len = points.length;
+    for (var i = 0; i < len; i++ ) {
+      // The magnitude of the projection of the point onto the normal
+      var dot = points[i].dot(normal);
+      if (dot < min) { min = dot; }
+      if (dot > max) { max = dot; }
+    }
+    result[0] = min; result[1] = max;
+  }
+  
+  // Check whether two convex polygons are separated by the specified
+  // axis (must be a unit vector).
+  /**
+   * @param {Vector} aPos The position of the first polygon.
+   * @param {Vector} bPos The position of the second polygon.
+   * @param {Array.<Vector>} aPoints The points in the first polygon.
+   * @param {Array.<Vector>} bPoints The points in the second polygon.
+   * @param {Vector} axis The axis (unit sized) to test against.  The points of both polygons
+   *   will be projected onto this axis.
+   * @param {Response=} response A Response object (optional) which will be populated
+   *   if the axis is not a separating axis.
+   * @return {boolean} true if it is a separating axis, false otherwise.  If false,
+   *   and a response is passed in, information about how much overlap and
+   *   the direction of the overlap will be populated.
+   */
+  function isSeparatingAxis(aPos, bPos, aPoints, bPoints, axis, response) {
+    var rangeA = T_ARRAYS.pop();
+    var rangeB = T_ARRAYS.pop();
+    // The magnitude of the offset between the two polygons
+    var offsetV = T_VECTORS.pop().copy(bPos).sub(aPos);
+    var projectedOffset = offsetV.dot(axis);
+    // Project the polygons onto the axis.
+    flattenPointsOn(aPoints, axis, rangeA);
+    flattenPointsOn(bPoints, axis, rangeB);
+    // Move B's range to its position relative to A.
+    rangeB[0] += projectedOffset;
+    rangeB[1] += projectedOffset;
+    // Check if there is a gap. If there is, this is a separating axis and we can stop
+    if (rangeA[0] > rangeB[1] || rangeB[0] > rangeA[1]) {
+      T_VECTORS.push(offsetV); 
+      T_ARRAYS.push(rangeA); 
+      T_ARRAYS.push(rangeB);
+      return true;
+    }
+    // This is not a separating axis. If we're calculating a response, calculate the overlap.
+    if (response) {
+      var overlap = 0;
+      // A starts further left than B
+      if (rangeA[0] < rangeB[0]) {
+        response['aInB'] = false;
+        // A ends before B does. We have to pull A out of B
+        if (rangeA[1] < rangeB[1]) { 
+          overlap = rangeA[1] - rangeB[0];
+          response['bInA'] = false;
+        // B is fully inside A.  Pick the shortest way out.
+        } else {
+          var option1 = rangeA[1] - rangeB[0];
+          var option2 = rangeB[1] - rangeA[0];
+          overlap = option1 < option2 ? option1 : -option2;
+        }
+      // B starts further left than A
+      } else {
+        response['bInA'] = false;
+        // B ends before A ends. We have to push A out of B
+        if (rangeA[1] > rangeB[1]) { 
+          overlap = rangeA[0] - rangeB[1];
+          response['aInB'] = false;
+        // A is fully inside B.  Pick the shortest way out.
+        } else {
+          var option1 = rangeA[1] - rangeB[0];
+          var option2 = rangeB[1] - rangeA[0];
+          overlap = option1 < option2 ? option1 : -option2;
+        }
+      }
+      // If this is the smallest amount of overlap we've seen so far, set it as the minimum overlap.
+      var absOverlap = Math.abs(overlap);
+      if (absOverlap < response['overlap']) {
+        response['overlap'] = absOverlap;
+        response['overlapN'].copy(axis);
+        if (overlap < 0) {
+          response['overlapN'].reverse();
+        }
+      }      
+    }
+    T_VECTORS.push(offsetV); 
+    T_ARRAYS.push(rangeA); 
+    T_ARRAYS.push(rangeB);
+    return false;
+  }
+  
+  // Calculates which Vornoi region a point is on a line segment.
+  // It is assumed that both the line and the point are relative to `(0,0)`
+  //
+  //            |       (0)      |
+  //     (-1)  [S]--------------[E]  (1)
+  //            |       (0)      |
+  /**
+   * @param {Vector} line The line segment.
+   * @param {Vector} point The point.
+   * @return  {number} LEFT_VORNOI_REGION (-1) if it is the left region, 
+   *          MIDDLE_VORNOI_REGION (0) if it is the middle region, 
+   *          RIGHT_VORNOI_REGION (1) if it is the right region.
+   */
+  function vornoiRegion(line, point) {
+    var len2 = line.len2();
+    var dp = point.dot(line);
+    // If the point is beyond the start of the line, it is in the
+    // left vornoi region.
+    if (dp < 0) { return LEFT_VORNOI_REGION; }
+    // If the point is beyond the end of the line, it is in the
+    // right vornoi region.
+    else if (dp > len2) { return RIGHT_VORNOI_REGION; }
+    // Otherwise, it's in the middle one.
+    else { return MIDDLE_VORNOI_REGION; }
+  }
+  // Constants for Vornoi regions
+  /**
+   * @const
+   */
+  var LEFT_VORNOI_REGION = -1;
+  /**
+   * @const
+   */
+  var MIDDLE_VORNOI_REGION = 0;
+  /**
+   * @const
+   */
+  var RIGHT_VORNOI_REGION = 1;
+  
+  // ## Collision Tests
+
+  // Check if a point is inside a circle.
+  /**
+   * @param {Vector} p The point to test.
+   * @param {Circle} c The circle to test.
+   * @return {boolean} true if the point is inside the circle, false if it is not.
+   */
+  function pointInCircle(p, c) {
+    var differenceV = T_VECTORS.pop().copy(p).sub(c['pos']);
+    var radiusSq = c['r'] * c['r'];
+    var distanceSq = differenceV.len2();
+    T_VECTORS.push(differenceV);
+    // If the distance between is smaller than the radius then the point is inside the circle.
+    return distanceSq <= radiusSq;
+  }
+  SAT['pointInCircle'] = pointInCircle;
+
+  // Check if a point is inside a convex polygon.
+  /**
+   * @param {Vector} p The point to test.
+   * @param {Polygon} poly The polygon to test.
+   * @return {boolean} true if the point is inside the polygon, false if it is not.
+   */
+  function pointInPolygon(p, poly) {
+    UNIT_SQUARE['pos'].copy(p);
+    T_RESPONSE.clear();
+    var result = testPolygonPolygon(UNIT_SQUARE, poly, T_RESPONSE);
+    if (result) {
+      result = T_RESPONSE['aInB'];
+    }
+    return result;
+  }
+  SAT['pointInPolygon'] = pointInPolygon;
+
+  // Check if two circles collide.
+  /**
+   * @param {Circle} a The first circle.
+   * @param {Circle} b The second circle.
+   * @param {Response=} response Response object (optional) that will be populated if
+   *   the circles intersect.
+   * @return {boolean} true if the circles intersect, false if they don't. 
+   */
+  function testCircleCircle(a, b, response) {
+    // Check if the distance between the centers of the two
+    // circles is greater than their combined radius.
+    var differenceV = T_VECTORS.pop().copy(b['pos']).sub(a['pos']);
+    var totalRadius = a['r'] + b['r'];
+    var totalRadiusSq = totalRadius * totalRadius;
+    var distanceSq = differenceV.len2();
+    // If the distance is bigger than the combined radius, they don't intersect.
+    if (distanceSq > totalRadiusSq) {
+      T_VECTORS.push(differenceV);
+      return false;
+    }
+    // They intersect.  If we're calculating a response, calculate the overlap.
+    if (response) { 
+      var dist = Math.sqrt(distanceSq);
+      response['a'] = a;
+      response['b'] = b;
+      response['overlap'] = totalRadius - dist;
+      response['overlapN'].copy(differenceV.normalize());
+      response['overlapV'].copy(differenceV).scale(response['overlap']);
+      response['aInB']= a['r'] <= b['r'] && dist <= b['r'] - a['r'];
+      response['bInA'] = b['r'] <= a['r'] && dist <= a['r'] - b['r'];
+    }
+    T_VECTORS.push(differenceV);
+    return true;
+  }
+  SAT['testCircleCircle'] = testCircleCircle;
+  
+  // Check if a polygon and a circle collide.
+  /**
+   * @param {Polygon} polygon The polygon.
+   * @param {Circle} circle The circle.
+   * @param {Response=} response Response object (optional) that will be populated if
+   *   they interset.
+   * @return {boolean} true if they intersect, false if they don't.
+   */
+  function testPolygonCircle(polygon, circle, response) {
+    // Get the position of the circle relative to the polygon.
+    var circlePos = T_VECTORS.pop().copy(circle['pos']).sub(polygon['pos']);
+    var radius = circle['r'];
+    var radius2 = radius * radius;
+    var points = polygon['calcPoints'];
+    var len = points.length;
+    var edge = T_VECTORS.pop();
+    var point = T_VECTORS.pop();
+    
+    // For each edge in the polygon:
+    for (var i = 0; i < len; i++) {
+      var next = i === len - 1 ? 0 : i + 1;
+      var prev = i === 0 ? len - 1 : i - 1;
+      var overlap = 0;
+      var overlapN = null;
+      
+      // Get the edge.
+      edge.copy(polygon['edges'][i]);
+      // Calculate the center of the circle relative to the starting point of the edge.
+      point.copy(circlePos).sub(points[i]);
+      
+      // If the distance between the center of the circle and the point
+      // is bigger than the radius, the polygon is definitely not fully in
+      // the circle.
+      if (response && point.len2() > radius2) {
+        response['aInB'] = false;
+      }
+      
+      // Calculate which Vornoi region the center of the circle is in.
+      var region = vornoiRegion(edge, point);
+      // If it's the left region:
+      if (region === LEFT_VORNOI_REGION) { 
+        // We need to make sure we're in the RIGHT_VORNOI_REGION of the previous edge.
+        edge.copy(polygon['edges'][prev]);
+        // Calculate the center of the circle relative the starting point of the previous edge
+        var point2 = T_VECTORS.pop().copy(circlePos).sub(points[prev]);
+        region = vornoiRegion(edge, point2);
+        if (region === RIGHT_VORNOI_REGION) {
+          // It's in the region we want.  Check if the circle intersects the point.
+          var dist = point.len();
+          if (dist > radius) {
+            // No intersection
+            T_VECTORS.push(circlePos); 
+            T_VECTORS.push(edge);
+            T_VECTORS.push(point); 
+            T_VECTORS.push(point2);
+            return false;
+          } else if (response) {
+            // It intersects, calculate the overlap.
+            response['bInA'] = false;
+            overlapN = point.normalize();
+            overlap = radius - dist;
+          }
+        }
+        T_VECTORS.push(point2);
+      // If it's the right region:
+      } else if (region === RIGHT_VORNOI_REGION) {
+        // We need to make sure we're in the left region on the next edge
+        edge.copy(polygon['edges'][next]);
+        // Calculate the center of the circle relative to the starting point of the next edge.
+        point.copy(circlePos).sub(points[next]);
+        region = vornoiRegion(edge, point);
+        if (region === LEFT_VORNOI_REGION) {
+          // It's in the region we want.  Check if the circle intersects the point.
+          var dist = point.len();
+          if (dist > radius) {
+            // No intersection
+            T_VECTORS.push(circlePos); 
+            T_VECTORS.push(edge); 
+            T_VECTORS.push(point);
+            return false;              
+          } else if (response) {
+            // It intersects, calculate the overlap.
+            response['bInA'] = false;
+            overlapN = point.normalize();
+            overlap = radius - dist;
+          }
+        }
+      // Otherwise, it's the middle region:
+      } else {
+        // Need to check if the circle is intersecting the edge,
+        // Change the edge into its "edge normal".
+        var normal = edge.perp().normalize();
+        // Find the perpendicular distance between the center of the 
+        // circle and the edge.
+        var dist = point.dot(normal);
+        var distAbs = Math.abs(dist);
+        // If the circle is on the outside of the edge, there is no intersection.
+        if (dist > 0 && distAbs > radius) {
+          // No intersection
+          T_VECTORS.push(circlePos); 
+          T_VECTORS.push(normal); 
+          T_VECTORS.push(point);
+          return false;
+        } else if (response) {
+          // It intersects, calculate the overlap.
+          overlapN = normal;
+          overlap = radius - dist;
+          // If the center of the circle is on the outside of the edge, or part of the
+          // circle is on the outside, the circle is not fully inside the polygon.
+          if (dist >= 0 || overlap < 2 * radius) {
+            response['bInA'] = false;
+          }
+        }
+      }
+      
+      // If this is the smallest overlap we've seen, keep it. 
+      // (overlapN may be null if the circle was in the wrong Vornoi region).
+      if (overlapN && response && Math.abs(overlap) < Math.abs(response['overlap'])) {
+        response['overlap'] = overlap;
+        response['overlapN'].copy(overlapN);
+      }
+    }
+    
+    // Calculate the final overlap vector - based on the smallest overlap.
+    if (response) {
+      response['a'] = polygon;
+      response['b'] = circle;
+      response['overlapV'].copy(response['overlapN']).scale(response['overlap']);
+    }
+    T_VECTORS.push(circlePos); 
+    T_VECTORS.push(edge); 
+    T_VECTORS.push(point);
+    return true;
+  }
+  SAT['testPolygonCircle'] = testPolygonCircle;
+  
+  // Check if a circle and a polygon collide.
+  //
+  // **NOTE:** This is slightly less efficient than polygonCircle as it just
+  // runs polygonCircle and reverses everything at the end.
+  /**
+   * @param {Circle} circle The circle.
+   * @param {Polygon} polygon The polygon.
+   * @param {Response=} response Response object (optional) that will be populated if
+   *   they interset.
+   * @return {boolean} true if they intersect, false if they don't.
+   */
+  function testCirclePolygon(circle, polygon, response) {
+    // Test the polygon against the circle.
+    var result = testPolygonCircle(polygon, circle, response);
+    if (result && response) {
+      // Swap A and B in the response.
+      var a = response['a'];
+      var aInB = response['aInB'];
+      response['overlapN'].reverse();
+      response['overlapV'].reverse();
+      response['a'] = response['b'];
+      response['b'] = a;
+      response['aInB'] = response['bInA'];
+      response['bInA'] = aInB;
+    }
+    return result;
+  }
+  SAT['testCirclePolygon'] = testCirclePolygon;
+  
+  // Checks whether polygons collide.
+  /**
+   * @param {Polygon} a The first polygon.
+   * @param {Polygon} b The second polygon.
+   * @param {Response=} response Response object (optional) that will be populated if
+   *   they interset.
+   * @return {boolean} true if they intersect, false if they don't.
+   */
+  function testPolygonPolygon(a, b, response) {
+    var aPoints = a['calcPoints'];
+    var aLen = aPoints.length;
+    var bPoints = b['calcPoints'];
+    var bLen = bPoints.length;
+    // If any of the edge normals of A is a separating axis, no intersection.
+    for (var i = 0; i < aLen; i++) {
+      if (isSeparatingAxis(a['pos'], b['pos'], aPoints, bPoints, a['normals'][i], response)) {
+        return false;
+      }
+    }
+    // If any of the edge normals of B is a separating axis, no intersection.
+    for (var i = 0;i < bLen; i++) {
+      if (isSeparatingAxis(a['pos'], b['pos'], aPoints, bPoints, b['normals'][i], response)) {
+        return false;
+      }
+    }
+    // Since none of the edge normals of A or B are a separating axis, there is an intersection
+    // and we've already calculated the smallest overlap (in isSeparatingAxis).  Calculate the
+    // final overlap vector.
+    if (response) {
+      response['a'] = a;
+      response['b'] = b;
+      response['overlapV'].copy(response['overlapN']).scale(response['overlap']);
+    }
+    return true;
+  }
+  SAT['testPolygonPolygon'] = testPolygonPolygon;
+
+  return SAT;
+}));
+
+},{}],17:[function(require,module,exports){
 /**
 
 seedrandom.js
@@ -9692,7 +10676,7 @@ if (module && module.exports) {
   'random'// rngname: name for Math.random and Math.seedrandom
 );
 
-},{"crypto":10}],17:[function(require,module,exports){
+},{"crypto":10}],18:[function(require,module,exports){
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -9842,7 +10826,7 @@ if ( typeof module === 'object' ) {
 	module.exports = Stats;
 
 }
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -44402,7 +45386,7 @@ if (typeof exports !== 'undefined') {
   this['THREE'] = THREE;
 }
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 // TinyColor v1.1.2
 // https://github.com/bgrins/TinyColor
 // Brian Grinstead, MIT License
@@ -45567,7 +46551,7 @@ else {
 
 })();
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -47117,7 +48101,7 @@ else {
   }
 }.call(this));
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 var _                = require('underscore');
@@ -47155,12 +48139,14 @@ var Building = function(parent, x, y, width, height, depth) {
   this.wallDoorChance = 0.1;
   this.bannerChance = 0.1;
   this.shieldChance = 0.1;
+  this.fenceChance = 0.4;
 
   this.heightDampener = 0.125;
 
-  this.fenceChance = 0.4;
   this.seed = 0;
   this.randomSeed();
+
+  this.showDebug = false;
 
   this.x = x;
   this.y = y;
@@ -47169,6 +48155,7 @@ var Building = function(parent, x, y, width, height, depth) {
   this.depth = depth;
 
   this.group = new THREE.Group();
+  this.debug = new THREE.Group();
 };
 
 Building.prototype.isSolid = function(x, y, z) {
@@ -47240,6 +48227,7 @@ Building.prototype.generate = function() {
   });
 
   this.group.remove.apply(this.group, this.group.children);
+  this.debug.remove.apply(this.debug, this.debug.children);
 
   this.colors = _.chain(colors)
     .mapObject(function(colors) { return chance.pick(colors); })
@@ -47261,6 +48249,10 @@ Building.prototype.generate = function() {
     for(var y = 0; y < this.height; y++) {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
         var voxel = new Voxel(this, x, y, z);
+
+        if(this.showDebug) {
+          this._debugBox(voxel);
+        }
 
         this._setFloor(voxel);
         this._setRoof(voxel);
@@ -47311,6 +48303,7 @@ Building.prototype.generate = function() {
 
   var material = new THREE.MeshFaceMaterial(_.values(materials));
   this.mesh = new THREE.Mesh(geometry, material);
+  this.mesh.add(this.debug);
   this.mesh.position.x = this.x;
   this.mesh.position.z = this.y;
 
@@ -47529,9 +48522,38 @@ Building.prototype._setFence = function(voxel) {
   }
 };
 
+Building.prototype._debugBox = function(voxel) {
+  var material, geometry, mesh;
+
+  if(voxel.solid) {   
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, Y, Z);
+    mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'debug';
+
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y;
+    mesh.position.z = voxel.z * Z;
+
+    this.debug.add(mesh);
+  }
+  else if(voxel.y === 0) {
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, 0.0001, Z);
+    mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'debug';
+
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y - Y / 2;
+    mesh.position.z = voxel.z * Z;
+
+    this.debug.add(mesh);
+  }
+};
+
 module.exports = Building;
 
-},{"../models":24,"./voxel":22,"chance":1,"fast-simplex-noise":5,"seedrandom":16,"three":18,"tinycolor2":19,"underscore":20}],22:[function(require,module,exports){
+},{"../models":25,"./voxel":23,"chance":1,"fast-simplex-noise":5,"seedrandom":17,"three":19,"tinycolor2":20,"underscore":21}],23:[function(require,module,exports){
 'use strict';
 
 var _ = require('underscore');
@@ -47546,13 +48568,28 @@ var Voxel = function(parent, x, y, z) {
   this.y = y;
   this.z = z;
 
-  this.solid = this.isSolid(x, y, z);
-  this.north = this.isSolid(x - 1, y, z);
-  this.south = this.isSolid(x + 1, y, z);
-  this.west = this.isSolid(x, y, z - 1);
-  this.east = this.isSolid(x, y, z + 1);
-  this.up = this.isSolid(x, y + 1, z);
-  this.down = this.isSolid(x, y - 1, z);
+  this.solid       = this.isSolid(x    , y    , z    );
+  
+  this.up          = this.isSolid(x    , y + 1, z    );
+  this.down        = this.isSolid(x    , y - 1, z    );
+  
+  this.north       = this.isSolid(x - 1, y    , z    );
+  this.northEast   = this.isSolid(x - 1, y    , z + 1);
+  this.east        = this.isSolid(x    , y    , z + 1);
+  this.southEast   = this.isSolid(x + 1, y    , z + 1);
+  this.south       = this.isSolid(x + 1, y    , z    );
+  this.southWest   = this.isSolid(x + 1, y    , z - 1);
+  this.west        = this.isSolid(x    , y    , z - 1);
+  this.northWest   = this.isSolid(x - 1, y    , z - 1);
+  
+  this.upNorth     = this.isSolid(x - 1, y + 1, z    );
+  this.upNorthEast = this.isSolid(x - 1, y + 1, z + 1);
+  this.upEast      = this.isSolid(x    , y + 1, z + 1);
+  this.upSouthEast = this.isSolid(x + 1, y + 1, z + 1);
+  this.upSouth     = this.isSolid(x + 1, y + 1, z    );
+  this.upSouthWest = this.isSolid(x + 1, y + 1, z - 1);
+  this.upWest      = this.isSolid(x    , y + 1, z - 1);
+  this.upNorthWest = this.isSolid(x - 1, y + 1, z - 1);
 
   this.border = this.isBorder(x, y, z);
   this.outside = this.isOutside(x, y, z);
@@ -47567,7 +48604,7 @@ var Voxel = function(parent, x, y, z) {
 };
 
 module.exports = Voxel;
-},{"underscore":20}],23:[function(require,module,exports){
+},{"underscore":21}],24:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -47579,6 +48616,7 @@ var Dat      = require('dat-gui');
 var models   = require('./models');
 
 var Building = require('./building/building');
+var Town     = require('./town/town');
 
 var chance = Chance();
 global.THREE = THREE;
@@ -47595,7 +48633,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.x = 25;
+// camera.position.x = 25;
 camera.position.y = 25;
 
 var controls = new THREE.OrbitControls(camera);
@@ -47627,34 +48665,39 @@ models.load(function() {
   //   }
   // }, 2000);
 
-  var building = new Building(scene, 0, 0, 4, 3, 4);
-  building.generate();
+  var town = new Town(scene, 40, 40);
+  town.generate();
 
-  global.building = building;
+  // var building = new Building(scene, 0, 0, 4, 3, 4);
+  // building.generate();
 
-  var gui = new Dat.GUI();
-  gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
-  gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
-  gui.add(building, 'octaves').min(1).max(64).step(1);
-  gui.add(building, 'persistence').min(0).max(1);
-  gui.add(building, 'heightDampener').min(0).max(1);
+  // global.building = building;
+
+  // var gui = new Dat.GUI();
+  // gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
+  // gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
+  // gui.add(building, 'octaves').min(1).max(64).step(1);
+  // gui.add(building, 'persistence').min(0).max(1);
+  // gui.add(building, 'heightDampener').min(0).max(1);
   
-  gui.add(building, 'width').min(1).max(15).step(1);
-  gui.add(building, 'height').min(1).max(15).step(1);
-  gui.add(building, 'depth').min(1).max(15).step(1);
+  // gui.add(building, 'width').min(1).max(15).step(1);
+  // gui.add(building, 'height').min(1).max(15).step(1);
+  // gui.add(building, 'depth').min(1).max(15).step(1);
 
-  gui.add(building, 'solidChance').min(0).max(1);
-  gui.add(building, 'roofPointChance').min(0).max(1);
-  gui.add(building, 'wallDoorChance').min(0).max(1);
-  gui.add(building, 'wallWindowChance').min(0).max(1);
-  gui.add(building, 'bannerChance').min(0).max(1);
-  gui.add(building, 'shieldChance').min(0).max(1);
-  gui.add(building, 'fenceChance').min(0).max(1);
+  // gui.add(building, 'solidChance').min(0).max(1);
+  // gui.add(building, 'roofPointChance').min(0).max(1);
+  // gui.add(building, 'wallDoorChance').min(0).max(1);
+  // gui.add(building, 'wallWindowChance').min(0).max(1);
+  // gui.add(building, 'bannerChance').min(0).max(1);
+  // gui.add(building, 'shieldChance').min(0).max(1);
+  // gui.add(building, 'fenceChance').min(0).max(1);
 
-  gui.add(building, 'seed').min(0).max(10000).listen();
+  // gui.add(building, 'seed').min(0).max(10000).listen();
 
-  gui.add(building, 'generateRandomSeed');
-  gui.add(building, 'generate');
+  // gui.add(building, 'showDebug');
+
+  // gui.add(building, 'generateRandomSeed');
+  // gui.add(building, 'generate');
 });
 
 var render = function () {
@@ -47672,7 +48715,7 @@ var render = function () {
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./building/building":21,"./models":24,"./plugins/MTLLoader":26,"./plugins/OBJMTLLoader":27,"./plugins/OrbitControls":28,"chance":1,"dat-gui":2,"stats.js":17,"three":18,"underscore":20}],24:[function(require,module,exports){
+},{"./building/building":22,"./models":25,"./plugins/MTLLoader":27,"./plugins/OBJMTLLoader":28,"./plugins/OrbitControls":29,"./town/town":30,"chance":1,"dat-gui":2,"stats.js":18,"three":19,"underscore":21}],25:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -47718,7 +48761,7 @@ exports.get = function(objectName) {
   return cache[objectName].clone();
 };
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./objects":25,"./plugins/MTLLoader":26,"./plugins/OBJMTLLoader":27,"nprogress":15,"three":18,"underscore":20}],25:[function(require,module,exports){
+},{"./objects":26,"./plugins/MTLLoader":27,"./plugins/OBJMTLLoader":28,"nprogress":15,"three":19,"underscore":21}],26:[function(require,module,exports){
 module.exports=[
   "Banner_01",
   "Banner_Short_01",
@@ -47791,7 +48834,7 @@ module.exports=[
   "Wood_Window_Square_01",
   "Wood_Window_Square_Sill_01"
 ]
-},{}],26:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 (function (global){
 /**
  * Loads a Wavefront .mtl file specifying materials
@@ -48245,7 +49288,7 @@ THREE.MTLLoader.nextHighestPowerOfTwo_ = function( x ) {
 THREE.EventDispatcher.prototype.apply( THREE.MTLLoader.prototype );
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],27:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 /**
  * Loads a Wavefront .obj file with materials
  *
@@ -48611,7 +49654,7 @@ THREE.OBJMTLLoader.prototype = {
 };
 
 THREE.EventDispatcher.prototype.apply( THREE.OBJMTLLoader.prototype );
-},{}],28:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 /**
  * @author qiao / https://github.com/qiao
  * @author mrdoob / http://mrdoob.com
@@ -49318,4 +50361,173 @@ THREE.OrbitControls = function ( object, domElement ) {
 
 THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
 THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-},{}]},{},[23])
+},{}],30:[function(require,module,exports){
+'use strict';
+
+var _          = require('underscore');
+var THREE      = require('three');
+var SAT        = require('sat');
+var Chance     = require('chance');
+var seedrandom = require('seedrandom');
+
+var chance = new Chance();
+
+var Town = function(parent, width, depth) {
+  this.parent = parent;
+
+  this.width = width;
+  this.depth = depth;
+
+  this.seed = 0;
+  this.randomSeed();
+
+  this.group = new THREE.Group();
+  this.debug = new THREE.Group();
+};
+
+Town.prototype.generate = function() {
+  var t0 = performance.now();
+
+  this.seed = 10;
+  this.rng = seedrandom(this.seed);
+  chance.random = this.rng;
+
+  this.group.remove.apply(this.group, this.group.children);
+  this.debug.remove.apply(this.debug, this.debug.children);
+
+  var material = new THREE.MeshNormalMaterial({ wireframe: true });
+  var geometry = new THREE.Geometry();
+  var points = [];
+
+  for(var i = 0; i < 3; i++) {
+    var x = chance.integer({ min: -30, max: 30 });
+    var z = chance.integer({ min: -30, max: 30 });
+    geometry.vertices.push(new THREE.Vector3(x, 0, z));
+    points.push(new THREE.Vector3(x, 0, z));
+  }
+
+  this.polygon = new SAT.Polygon(new SAT.Vector(0, 0), [
+    new SAT.Vector(points[0].x, points[0].z), 
+    new SAT.Vector(points[1].x, points[1].z), 
+    new SAT.Vector(points[2].x, points[2].z), 
+  ]);
+
+  var m;
+  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+  m.position.x = this.polygon.calcPoints[0].x;
+  m.position.z = this.polygon.calcPoints[0].y;
+  this.group.add(m);
+  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+  m.position.x = this.polygon.calcPoints[1].x;
+  m.position.z = this.polygon.calcPoints[1].y;
+  this.group.add(m);
+  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+  m.position.x = this.polygon.calcPoints[2].x;
+  m.position.z = this.polygon.calcPoints[2].y;
+  this.group.add(m);
+
+  geometry.faces.push(new THREE.Face3(0, 1, 2));
+  geometry.faces[0].normal.y = -1;
+  this.group.add(new THREE.Mesh(geometry, material));
+
+  this._getGrids(points);
+
+  this.parent.add(this.group);
+
+  var t1 = performance.now();
+  console.log('generate() ' + (t1 - t0) + 'ms');
+};
+
+Town.prototype.randomSeed = function() {
+  this.seed = Math.round(Math.random() * 10000);
+};
+
+Town.prototype.generateRandomSeed = function() {
+  this.randomSeed();
+  this.generate();
+};
+
+Town.prototype._getGrids = function(points) {
+  var material = new THREE.MeshNormalMaterial({ wireframe: true });
+
+  for(var i = 0; i < 1; i++) {
+    var start = points[i];
+    console.log(start);
+    var end = (i < points.length -1) ? points[i + 1] : points[0];
+    var distance = start.distanceTo(end);
+
+    var normal = end.clone().sub(start).normalize();
+    var perp = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+
+    var squares = [];
+    var mesh;
+
+    for(var j = 1.5; j < distance; j += 3) {
+      for(var k = 1.5; k < 9; k += 3) {
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(3, 0.001, 3), material);
+
+        var pos = start.clone()
+          .add(normal.setLength(j))
+          .add(perp.setLength(k));
+
+        var angle = normal.angleTo(new THREE.Vector3(-1, 0, 0));
+
+        var square = new SAT.Polygon(new SAT.Vector(pos.x, pos.z), [
+          new SAT.Vector(pos.x - 1.5, pos.z - 1.5),
+          new SAT.Vector(pos.x + 1.5, pos.z - 1.5),
+          new SAT.Vector(pos.x + 1.5, pos.z + 1.5),
+          new SAT.Vector(pos.x - 1.5, pos.z + 1.5),
+        ]);
+
+        // square.translate(-pos.x, -pos.z);
+        // square.rotate(angle);
+        // square.translate(pos.x, pos.z);
+
+        squares.push(square);
+
+
+        mesh.position.x = pos.x;
+        mesh.position.z = pos.z;
+        mesh.rotation.y = -angle;
+        this.group.add(mesh);
+        // break;
+      }
+      // break;
+    }
+
+    var response = new SAT.Response();
+    for(var j = 0; j < squares.length; j++) {
+      var square = squares[j];
+      var collided = SAT.testPolygonPolygon(square, this.polygon, response);
+
+      if(!response.bInA) {
+        console.log(square);
+      }
+      else {
+        var m;
+        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+        m.position.x = square.calcPoints[0].x;
+        m.position.z = square.calcPoints[0].y;
+        this.group.add(m);
+        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+        m.position.x = square.calcPoints[1].x;
+        m.position.z = square.calcPoints[1].y;
+        this.group.add(m);
+        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+        m.position.x = square.calcPoints[2].x;
+        m.position.z = square.calcPoints[2].y;
+        this.group.add(m);
+        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+        m.position.x = square.calcPoints[3].x;
+        m.position.z = square.calcPoints[3].y;
+        this.group.add(m);
+      }
+
+
+      response.clear();
+    }
+  }
+};
+
+module.exports = Town;
+},{"chance":1,"sat":16,"seedrandom":17,"three":19,"underscore":21}]},{},[24])

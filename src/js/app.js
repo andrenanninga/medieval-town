@@ -8,6 +8,7 @@ var Dat      = require('dat-gui');
 var models   = require('./models');
 
 var Building = require('./building/building');
+var Town     = require('./town/town');
 
 var chance = Chance();
 global.THREE = THREE;
@@ -24,7 +25,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.x = 25;
+// camera.position.x = 25;
 camera.position.y = 25;
 
 var controls = new THREE.OrbitControls(camera);
@@ -56,34 +57,39 @@ models.load(function() {
   //   }
   // }, 2000);
 
-  var building = new Building(scene, 0, 0, 4, 3, 4);
-  building.generate();
+  var town = new Town(scene, 40, 40);
+  town.generate();
 
-  global.building = building;
+  // var building = new Building(scene, 0, 0, 4, 3, 4);
+  // building.generate();
 
-  var gui = new Dat.GUI();
-  gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
-  gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
-  gui.add(building, 'octaves').min(1).max(64).step(1);
-  gui.add(building, 'persistence').min(0).max(1);
-  gui.add(building, 'heightDampener').min(0).max(1);
+  // global.building = building;
+
+  // var gui = new Dat.GUI();
+  // gui.add(building, 'amplitude').min(0.02).max(1).step(0.02);
+  // gui.add(building, 'frequency').min(0.02).max(1).step(0.02);
+  // gui.add(building, 'octaves').min(1).max(64).step(1);
+  // gui.add(building, 'persistence').min(0).max(1);
+  // gui.add(building, 'heightDampener').min(0).max(1);
   
-  gui.add(building, 'width').min(1).max(15).step(1);
-  gui.add(building, 'height').min(1).max(15).step(1);
-  gui.add(building, 'depth').min(1).max(15).step(1);
+  // gui.add(building, 'width').min(1).max(15).step(1);
+  // gui.add(building, 'height').min(1).max(15).step(1);
+  // gui.add(building, 'depth').min(1).max(15).step(1);
 
-  gui.add(building, 'solidChance').min(0).max(1);
-  gui.add(building, 'roofPointChance').min(0).max(1);
-  gui.add(building, 'wallDoorChance').min(0).max(1);
-  gui.add(building, 'wallWindowChance').min(0).max(1);
-  gui.add(building, 'bannerChance').min(0).max(1);
-  gui.add(building, 'shieldChance').min(0).max(1);
-  gui.add(building, 'fenceChance').min(0).max(1);
+  // gui.add(building, 'solidChance').min(0).max(1);
+  // gui.add(building, 'roofPointChance').min(0).max(1);
+  // gui.add(building, 'wallDoorChance').min(0).max(1);
+  // gui.add(building, 'wallWindowChance').min(0).max(1);
+  // gui.add(building, 'bannerChance').min(0).max(1);
+  // gui.add(building, 'shieldChance').min(0).max(1);
+  // gui.add(building, 'fenceChance').min(0).max(1);
 
-  gui.add(building, 'seed').min(0).max(10000).listen();
+  // gui.add(building, 'seed').min(0).max(10000).listen();
 
-  gui.add(building, 'generateRandomSeed');
-  gui.add(building, 'generate');
+  // gui.add(building, 'showDebug');
+
+  // gui.add(building, 'generateRandomSeed');
+  // gui.add(building, 'generate');
 });
 
 var render = function () {

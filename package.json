@@ -13,6 +13,7 @@
     "dat-gui": "^0.5.0",
     "fast-simplex-noise": "^0.5.0",
     "nprogress": "^0.1.6",
+    "sat": "^0.5.0",
     "seedrandom": "^2.3.11",
     "stats": "mrdoob/stats.js",
     "three": "^0.70.0",

@@ -35,12 +35,14 @@ var Building = function(parent, x, y, width, height, depth) {
   this.wallDoorChance = 0.1;
   this.bannerChance = 0.1;
   this.shieldChance = 0.1;
+  this.fenceChance = 0.4;
 
   this.heightDampener = 0.125;
 
-  this.fenceChance = 0.4;
   this.seed = 0;
   this.randomSeed();
+
+  this.showDebug = false;
 
   this.x = x;
   this.y = y;
@@ -49,6 +51,7 @@ var Building = function(parent, x, y, width, height, depth) {
   this.depth = depth;
 
   this.group = new THREE.Group();
+  this.debug = new THREE.Group();
 };
 
 Building.prototype.isSolid = function(x, y, z) {
@@ -120,6 +123,7 @@ Building.prototype.generate = function() {
   });
 
   this.group.remove.apply(this.group, this.group.children);
+  this.debug.remove.apply(this.debug, this.debug.children);
 
   this.colors = _.chain(colors)
     .mapObject(function(colors) { return chance.pick(colors); })
@@ -141,6 +145,10 @@ Building.prototype.generate = function() {
     for(var y = 0; y < this.height; y++) {
       for(var z = -this.depth / 2; z < this.depth / 2; z++) {
         var voxel = new Voxel(this, x, y, z);
+
+        if(this.showDebug) {
+          this._debugBox(voxel);
+        }
 
         this._setFloor(voxel);
         this._setRoof(voxel);
@@ -191,6 +199,7 @@ Building.prototype.generate = function() {
 
   var material = new THREE.MeshFaceMaterial(_.values(materials));
   this.mesh = new THREE.Mesh(geometry, material);
+  this.mesh.add(this.debug);
   this.mesh.position.x = this.x;
   this.mesh.position.z = this.y;
 
@@ -406,6 +415,35 @@ Building.prototype._setFence = function(voxel) {
         this.group.add(fence);
       }
     }
+  }
+};
+
+Building.prototype._debugBox = function(voxel) {
+  var material, geometry, mesh;
+
+  if(voxel.solid) {   
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, Y, Z);
+    mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'debug';
+
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y;
+    mesh.position.z = voxel.z * Z;
+
+    this.debug.add(mesh);
+  }
+  else if(voxel.y === 0) {
+    material = new THREE.MeshNormalMaterial({ wireframe: true });
+    geometry = new THREE.BoxGeometry(X, 0.0001, Z);
+    mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'debug';
+
+    mesh.position.x = voxel.x * X;
+    mesh.position.y = voxel.y * Y - Y / 2;
+    mesh.position.z = voxel.z * Z;
+
+    this.debug.add(mesh);
   }
 };
 
