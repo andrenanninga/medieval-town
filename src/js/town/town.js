@@ -24,7 +24,7 @@ var Town = function(parent, width, depth) {
 Town.prototype.generate = function() {
   var t0 = performance.now();
 
-  this.seed = 10;
+  this.seed = Date.now();
   this.rng = seedrandom(this.seed);
   chance.random = this.rng;
 
@@ -35,17 +35,31 @@ Town.prototype.generate = function() {
   var geometry = new THREE.Geometry();
   var points = [];
 
-  for(var i = 0; i < 3; i++) {
-    var x = chance.integer({ min: -30, max: 30 });
-    var z = chance.integer({ min: -30, max: 30 });
-    geometry.vertices.push(new THREE.Vector3(x, 0, z));
-    points.push(new THREE.Vector3(x, 0, z));
-  }
+  var x = chance.integer({ min: 0, max: 30 });
+  var z = chance.integer({ min: 0, max: 30 });
+  geometry.vertices.push(new THREE.Vector3(x, 0, z));
+  points.push(new THREE.Vector3(x, 0, z));
+
+  var x = chance.integer({ min: 0, max: 30 });
+  var z = chance.integer({ min: -30, max: 0 });
+  geometry.vertices.push(new THREE.Vector3(x, 0, z));
+  points.push(new THREE.Vector3(x, 0, z));
+
+  var x = chance.integer({ min: -30, max: 0 });
+  var z = chance.integer({ min: -30, max: 0 });
+  geometry.vertices.push(new THREE.Vector3(x, 0, z));
+  points.push(new THREE.Vector3(x, 0, z));
+
+  var x = chance.integer({ min: -30, max: 0 });
+  var z = chance.integer({ min: 0, max: 30 });
+  geometry.vertices.push(new THREE.Vector3(x, 0, z));
+  points.push(new THREE.Vector3(x, 0, z));
 
   this.polygon = new SAT.Polygon(new SAT.Vector(0, 0), [
     new SAT.Vector(points[0].x, points[0].z), 
     new SAT.Vector(points[1].x, points[1].z), 
     new SAT.Vector(points[2].x, points[2].z), 
+    new SAT.Vector(points[3].x, points[3].z), 
   ]);
 
   var m;
@@ -61,9 +75,15 @@ Town.prototype.generate = function() {
   m.position.x = this.polygon.calcPoints[2].x;
   m.position.z = this.polygon.calcPoints[2].y;
   this.group.add(m);
+  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
+  m.position.x = this.polygon.calcPoints[3].x;
+  m.position.z = this.polygon.calcPoints[3].y;
+  this.group.add(m);
 
   geometry.faces.push(new THREE.Face3(0, 1, 2));
+  geometry.faces.push(new THREE.Face3(0, 2, 3));
   geometry.faces[0].normal.y = -1;
+  geometry.faces[1].normal.y = -1;
   this.group.add(new THREE.Mesh(geometry, material));
 
   this._getGrids(points);
@@ -84,85 +104,104 @@ Town.prototype.generateRandomSeed = function() {
 };
 
 Town.prototype._getGrids = function(points) {
+  var i, j, k, l;
   var material = new THREE.MeshNormalMaterial({ wireframe: true });
 
-  for(var i = 0; i < 1; i++) {
+  var grids = [];
+
+  for(i = 0; i < 4; i++) {
     var start = points[i];
-    console.log(start);
     var end = (i < points.length -1) ? points[i + 1] : points[0];
     var distance = start.distanceTo(end);
 
     var normal = end.clone().sub(start).normalize();
     var perp = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+    var angle1 = normal.angleTo(new THREE.Vector3(0, 0, 1));
+    var angle2 = normal.angleTo(new THREE.Vector3(0, 0, -1));
 
+    var angle = normal.x < 0 ? angle1 : angle2; 
     var squares = [];
-    var mesh;
 
-    for(var j = 1.5; j < distance; j += 3) {
-      for(var k = 1.5; k < 9; k += 3) {
-        mesh = new THREE.Mesh(new THREE.BoxGeometry(3, 0.001, 3), material);
-
+    for(j = 1.5; j < distance; j += 3) {
+      for(k = 1.5; k < 29; k += 3) {
         var pos = start.clone()
           .add(normal.setLength(j))
-          .add(perp.setLength(k));
+          .add(perp.setLength(k + 0.005));
 
-        var angle = normal.angleTo(new THREE.Vector3(-1, 0, 0));
-
-        var square = new SAT.Polygon(new SAT.Vector(pos.x, pos.z), [
-          new SAT.Vector(pos.x - 1.5, pos.z - 1.5),
-          new SAT.Vector(pos.x + 1.5, pos.z - 1.5),
-          new SAT.Vector(pos.x + 1.5, pos.z + 1.5),
-          new SAT.Vector(pos.x - 1.5, pos.z + 1.5),
+        var square = new SAT.Polygon(new SAT.Vector(0, 0), [
+          new SAT.Vector(-1.49, -1.49),
+          new SAT.Vector(+1.49, -1.49),
+          new SAT.Vector(+1.49, +1.49),
+          new SAT.Vector(-1.49, +1.49),
         ]);
 
-        // square.translate(-pos.x, -pos.z);
-        // square.rotate(angle);
-        // square.translate(pos.x, pos.z);
+        square.depth = k;
+
+        square.setOffset(new SAT.Vector(pos.x, pos.z));
+        square.rotate(angle);
 
         squares.push(square);
-
-
-        mesh.position.x = pos.x;
-        mesh.position.z = pos.z;
-        mesh.rotation.y = -angle;
-        this.group.add(mesh);
-        // break;
       }
-      // break;
     }
 
     var response = new SAT.Response();
-    for(var j = 0; j < squares.length; j++) {
-      var square = squares[j];
-      var collided = SAT.testPolygonPolygon(square, this.polygon, response);
-
-      if(!response.bInA) {
-        console.log(square);
-      }
-      else {
-        var m;
-        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-        m.position.x = square.calcPoints[0].x;
-        m.position.z = square.calcPoints[0].y;
-        this.group.add(m);
-        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-        m.position.x = square.calcPoints[1].x;
-        m.position.z = square.calcPoints[1].y;
-        this.group.add(m);
-        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-        m.position.x = square.calcPoints[2].x;
-        m.position.z = square.calcPoints[2].y;
-        this.group.add(m);
-        m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-        m.position.x = square.calcPoints[3].x;
-        m.position.z = square.calcPoints[3].y;
-        this.group.add(m);
-      }
-
-
+    squares = _.filter(squares, function(square) {
       response.clear();
+      var collided = SAT.testPolygonPolygon(square, this.polygon, response);
+      return collided && response.aInB;
+    }, this);
+
+    grids.push(squares);
+  }
+
+  console.log(grids);
+
+  grids = _.flatten(grids);
+  console.log(grids.length);
+  var deletes = [];
+
+  for(i = 0; i < grids.length - 1; i++) {
+    for(j = i + 1; j < grids.length; j++) {
+      var square1 = grids[i];
+      var square2 = grids[j];
+
+      if(SAT.testPolygonPolygon(square1, square2)) {
+        if(square1.depth >= square2.depth) {
+          deletes.push(i);
+        }
+        else {
+          deletes.push(j);
+        }
+      }
     }
   }
+
+  deletes = _.uniq(deletes);
+  console.log(deletes, grids.length);
+
+  for(j = 0; j < grids.length; j++) {
+    if(_.contains(deletes, j)) {
+      continue;
+    }
+
+    var square = grids[j];
+
+    var geometry = new THREE.Geometry();
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[0].x, 0, square.calcPoints[0].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[1].x, 0, square.calcPoints[1].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[2].x, 0, square.calcPoints[2].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[3].x, 0, square.calcPoints[3].y));
+
+    geometry.faces.push(new THREE.Face3(0, 1, 2));
+    geometry.faces.push(new THREE.Face3(0, 2, 3));
+
+    geometry.faces[0].normal = new THREE.Vector3(0, 1, 0);
+    geometry.faces[1].normal = new THREE.Vector3(0, 1, 0);
+
+    var m = new THREE.Mesh(geometry, material);
+    this.group.add(m);
+  }
+
 };
 
 module.exports = Town;
