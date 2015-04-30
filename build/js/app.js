@@ -53840,8 +53840,11 @@ var colors = {
   'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B']
 };
 
+var index = 0;
+
 var Building = function(parent, x, y, width, height, depth) {
   this.parent = parent;
+  this.index = index++;
 
   this.amplitude = 1;
   this.frequency = 0.08;
@@ -53904,6 +53907,7 @@ Building.prototype.isOutside = function(x, y, z) {
 };
 
 Building.prototype.generate = function() {
+  console.time('building.generate.' + this.index);
   var self = this;
 
   this.rng = seedrandom(this.seed);
@@ -53999,6 +54003,8 @@ Building.prototype.generate = function() {
   this.mesh.position.z = this.y;
 
   this.parent.add(this.mesh);
+  
+  console.timeEnd('building.generate.' + this.index);
 };
 
 Building.prototype.randomSeed = function() {
@@ -56062,9 +56068,12 @@ var tinycolor = require('tinycolor2');
 
 var Building  = require('../building/building');
 
+var index = 0;
+
 var Block = function(parent, points) {
   this.parent = parent;
   this.points = points;
+  this.index = index++;
 
   this.marginWidth = 0;
   this.marginDepth = 0;
@@ -56081,6 +56090,7 @@ var Block = function(parent, points) {
 };
 
 Block.prototype.generate = function() {
+  console.time('block.generate.' + this.index);
   this.grid = this._getGrid();
 
   this._debugBlock();
@@ -56090,6 +56100,8 @@ Block.prototype.generate = function() {
 
   this.parent.add(this.group);
   this.parent.add(this.debug);
+
+  console.timeEnd('block.generate.' + this.index);
 };
 
 Block.prototype._getGrid = function() {
@@ -56235,7 +56247,7 @@ Block.prototype._divideGrid = function(grid) {
     for(var j = 0; j < columns.length; j++) {
       var column = _.filter(squares, filterColumn(columns[j]));
 
-      if(column.length !== lastColumnSize || division.length >= 4) {
+      if(column.length !== lastColumnSize || division.length >= 7) {
         if(division) {
           divisions.push(_.flatten(division));
         }
@@ -56261,7 +56273,7 @@ Block.prototype._divideGrid = function(grid) {
     var height = 2 + Math.round(Math.random() * 2);
 
     var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-    building.solidChance = 0.7;
+    building.solidChance = 0.8;
     building.heightDampener = 0.1;
     building.generate();
     building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), division[0].a);
@@ -56341,17 +56353,18 @@ var Town = function(parent, width, depth) {
 };
 
 Town.prototype.generate = function() {
+  console.time('town.generate');
   this.seed = Date.now();
   this.rng = seedrandom(this.seed);
   chance.random = this.rng;
 
   this.voronoi = new Voronoi();
-  var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
+  var bbox = {xl: -80, xr: 80, yt: -80, yb: 80 };
   var sites = [];
 
   for(var i = 0; i < 20; i++) {
-    var x = chance.integer({ min: -50, max: 50 });
-    var y = chance.integer({ min: -50, max: 50 });
+    var x = chance.integer({ min: -80, max: 80 });
+    var y = chance.integer({ min: -80, max: 80 });
 
     sites.push({ x: x, y: y });
   }
@@ -56372,28 +56385,15 @@ Town.prototype.generate = function() {
     var polygon = new Polygon(points);
     polygon = polygon.offset(-3);
     polygon.rewind(true);
-
-    var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
-    block.generate();
+    if(polygon.area() > 250) {
+      var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
+      block.generate();
+    }
   }
 
-  // var n = function(min, max) {
-  //   return chance.integer({ min: min, max: max });
-  // };
-
-  // this.group.remove.apply(this.group, this.group.children);
-  // this.debug.remove.apply(this.debug, this.debug.children);
-
-  // var points = [];
-  // points.push(new THREE.Vector3(n(10, 30), 0, n(10, 20)));
-  // points.push(new THREE.Vector3(n(10, 20), 0, n(-20, -10)));
-  // points.push(new THREE.Vector3(n(-20, -10), 0, n(-20, -10)));
-  // points.push(new THREE.Vector3(n(-20, -10), 0, n(10, 20)));
-
-  // var block = new Block(this.group, points);
-  // block.generate();
-
   this.parent.add(this.group);
+  console.timeEnd('town.generate');
+
 };
 
 Town.prototype.randomSeed = function() {

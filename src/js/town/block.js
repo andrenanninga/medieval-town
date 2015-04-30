@@ -7,9 +7,12 @@ var tinycolor = require('tinycolor2');
 
 var Building  = require('../building/building');
 
+var index = 0;
+
 var Block = function(parent, points) {
   this.parent = parent;
   this.points = points;
+  this.index = index++;
 
   this.marginWidth = 0;
   this.marginDepth = 0;
@@ -26,6 +29,7 @@ var Block = function(parent, points) {
 };
 
 Block.prototype.generate = function() {
+  console.time('block.generate.' + this.index);
   this.grid = this._getGrid();
 
   this._debugBlock();
@@ -35,6 +39,8 @@ Block.prototype.generate = function() {
 
   this.parent.add(this.group);
   this.parent.add(this.debug);
+
+  console.timeEnd('block.generate.' + this.index);
 };
 
 Block.prototype._getGrid = function() {
@@ -180,7 +186,7 @@ Block.prototype._divideGrid = function(grid) {
     for(var j = 0; j < columns.length; j++) {
       var column = _.filter(squares, filterColumn(columns[j]));
 
-      if(column.length !== lastColumnSize || division.length >= 4) {
+      if(column.length !== lastColumnSize || division.length >= 7) {
         if(division) {
           divisions.push(_.flatten(division));
         }
@@ -206,7 +212,7 @@ Block.prototype._divideGrid = function(grid) {
     var height = 2 + Math.round(Math.random() * 2);
 
     var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-    building.solidChance = 0.7;
+    building.solidChance = 0.8;
     building.heightDampener = 0.1;
     building.generate();
     building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), division[0].a);

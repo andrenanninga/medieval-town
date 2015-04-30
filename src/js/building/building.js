@@ -21,8 +21,11 @@ var colors = {
   'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B']
 };
 
+var index = 0;
+
 var Building = function(parent, x, y, width, height, depth) {
   this.parent = parent;
+  this.index = index++;
 
   this.amplitude = 1;
   this.frequency = 0.08;
@@ -85,6 +88,7 @@ Building.prototype.isOutside = function(x, y, z) {
 };
 
 Building.prototype.generate = function() {
+  console.time('building.generate.' + this.index);
   var self = this;
 
   this.rng = seedrandom(this.seed);
@@ -180,6 +184,8 @@ Building.prototype.generate = function() {
   this.mesh.position.z = this.y;
 
   this.parent.add(this.mesh);
+  
+  console.timeEnd('building.generate.' + this.index);
 };
 
 Building.prototype.randomSeed = function() {
