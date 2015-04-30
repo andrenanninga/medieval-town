@@ -55,15 +55,7 @@ var Building = function(parent, x, y, width, height, depth) {
 };
 
 Building.prototype.isSolid = function(x, y, z) {
-  if(x < this.width / -2 || x >= this.width / 2) {
-    return false;
-  }
-
-  if(z < this.depth / -2 || z >= this.depth / 2) {
-    return false;
-  }
-
-  if(y < 0 || y >= this.height) {
+  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
     return false;
   }
 
@@ -77,15 +69,7 @@ Building.prototype.isSolid = function(x, y, z) {
 };
 
 Building.prototype.isBorder = function(x, y, z) {
-  if(x === this.width / -2 || x === this.width / 2 - 1) {
-    return true;
-  }
-
-  if(z === this.depth / -2 || z === this.depth / 2 - 1) {
-    return true;
-  }
-
-  if(y === 0 || y === this.height - 1) {
+  if(x === 0 || x === this.width || z === 0 || z === this.depth || y === 0 || y === this.height) {
     return true;
   }
 
@@ -93,15 +77,7 @@ Building.prototype.isBorder = function(x, y, z) {
 };
 
 Building.prototype.isOutside = function(x, y, z) {
-  if(x < this.width / -2 || x >= this.width / 2) {
-    return true;
-  }
-
-  if(z < this.depth / -2 || z >= this.depth / 2) {
-    return true;
-  }
-
-  if(y < 0 || y >= this.height) {
+  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
     return true;
   }
 
@@ -141,9 +117,9 @@ Building.prototype.generate = function() {
 
   var hasFence = this.rng() < this.fenceChance;
 
-  for(var x = -this.width / 2; x < this.width / 2; x++) {
+  for(var x = 0; x < this.width; x++) {
     for(var y = 0; y < this.height; y++) {
-      for(var z = -this.depth / 2; z < this.depth / 2; z++) {
+      for(var z = 0; z < this.depth; z++) {
         var voxel = new Voxel(this, x, y, z);
 
         if(this.showDebug) {

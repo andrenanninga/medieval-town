@@ -48159,15 +48159,7 @@ var Building = function(parent, x, y, width, height, depth) {
 };
 
 Building.prototype.isSolid = function(x, y, z) {
-  if(x < this.width / -2 || x >= this.width / 2) {
-    return false;
-  }
-
-  if(z < this.depth / -2 || z >= this.depth / 2) {
-    return false;
-  }
-
-  if(y < 0 || y >= this.height) {
+  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
     return false;
   }
 
@@ -48181,15 +48173,7 @@ Building.prototype.isSolid = function(x, y, z) {
 };
 
 Building.prototype.isBorder = function(x, y, z) {
-  if(x === this.width / -2 || x === this.width / 2 - 1) {
-    return true;
-  }
-
-  if(z === this.depth / -2 || z === this.depth / 2 - 1) {
-    return true;
-  }
-
-  if(y === 0 || y === this.height - 1) {
+  if(x === 0 || x === this.width || z === 0 || z === this.depth || y === 0 || y === this.height) {
     return true;
   }
 
@@ -48197,15 +48181,7 @@ Building.prototype.isBorder = function(x, y, z) {
 };
 
 Building.prototype.isOutside = function(x, y, z) {
-  if(x < this.width / -2 || x >= this.width / 2) {
-    return true;
-  }
-
-  if(z < this.depth / -2 || z >= this.depth / 2) {
-    return true;
-  }
-
-  if(y < 0 || y >= this.height) {
+  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
     return true;
   }
 
@@ -48245,9 +48221,9 @@ Building.prototype.generate = function() {
 
   var hasFence = this.rng() < this.fenceChance;
 
-  for(var x = -this.width / 2; x < this.width / 2; x++) {
+  for(var x = 0; x < this.width; x++) {
     for(var y = 0; y < this.height; y++) {
-      for(var z = -this.depth / 2; z < this.depth / 2; z++) {
+      for(var z = 0; z < this.depth; z++) {
         var voxel = new Voxel(this, x, y, z);
 
         if(this.showDebug) {
@@ -48715,7 +48691,7 @@ var render = function () {
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./building/building":22,"./models":25,"./plugins/MTLLoader":27,"./plugins/OBJMTLLoader":28,"./plugins/OrbitControls":29,"./town/town":30,"chance":1,"dat-gui":2,"stats.js":18,"three":19,"underscore":21}],25:[function(require,module,exports){
+},{"./building/building":22,"./models":25,"./plugins/MTLLoader":27,"./plugins/OBJMTLLoader":28,"./plugins/OrbitControls":29,"./town/town":31,"chance":1,"dat-gui":2,"stats.js":18,"three":19,"underscore":21}],25:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -50364,11 +50340,271 @@ THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
 },{}],30:[function(require,module,exports){
 'use strict';
 
+var _ = require('underscore');
+var THREE = require('three');
+var SAT   = require('sat');
+
+var Building = require('../building/building');
+
+var Block = function(parent, points) {
+  this.parent = parent;
+  this.points = points;
+
+  this.marginWidth = 1;
+  this.marginDepth = 1;
+  this.squareSize = 3;
+  this.depth = 3;
+
+  this.SATPolygon = new SAT.Polygon(
+    new SAT.Vector(0, 0), 
+    _.map(this.points, function(point) { return new SAT.Vector(point.x, point.z); })
+  );
+
+  this.group = new THREE.Group();
+  this.debug = new THREE.Group();
+};
+
+Block.prototype.generate = function() {
+  this._debugBlock();
+  this._debugGrid(this._getGrid());
+
+  this.parent.add(this.group);
+  this.parent.add(this.debug);
+};
+
+Block.prototype._getGrid = function() {
+  var grid = [];
+
+  for(var i = 0; i < this.points.length; i++) {
+    var start = this.points[i];
+    var end = (i < this.points.length - 1) ? this.points[i + 1] : this.points[0];
+
+    var edgeGrid = this._getGridOnEdge(i, start, end);
+    grid.push(edgeGrid);
+  }
+
+  grid = _.flatten(grid);
+  grid = this._filterGridOutside(grid);
+  grid = this._filterGridOverlap(grid);
+
+  this._divideGrid(grid);
+
+  return grid;
+};
+
+Block.prototype._getGridOnEdge = function(edge, start, end) {
+  var grid = [];
+
+  var distance = start.distanceTo(end);
+  var normal = end.clone().sub(start).normalize();
+  var perpendicular = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  var angle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? 1 : -1));
+  var otherAngle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? -1 : 1));
+
+  if(normal.x < 0) {
+    otherAngle -= Math.PI;
+  }
+
+  var halfSquare = this.squareSize / 2;
+  var widthStart = halfSquare + this.marginWidth;
+  var widthEnd = distance - this.marginWidth * 2;
+  var depthStart = halfSquare + this.marginDepth;
+  var depthEnd = this.depth * this.squareSize + depthStart;
+
+  var column = 0;
+
+  for(var i = widthStart; i < widthEnd; i += this.squareSize) {
+    var row = 0;
+
+    for(var j = depthStart; j < depthEnd; j += this.squareSize) {
+
+      var position = start.clone()
+        .add(normal.setLength(i))
+        .add(perpendicular.setLength(j + 0.005));
+
+      var square = new SAT.Polygon(new SAT.Vector(0, 0), [
+        new SAT.Vector(-halfSquare, -halfSquare),
+        new SAT.Vector(+halfSquare, -halfSquare),
+        new SAT.Vector(+halfSquare, +halfSquare),
+        new SAT.Vector(-halfSquare, +halfSquare)
+      ]);
+
+      square.setOffset(new SAT.Vector(position.x, position.z));
+      square.rotate(angle);
+
+      square.a = otherAngle;
+
+      square.edge = edge;
+      square.row = row;
+      square.column = column;
+
+      grid.push(square);
+
+      row += 1;
+    }
+
+    column += 1;
+  }
+
+  return grid;
+};
+
+Block.prototype._filterGridOutside = function(grid) {
+  var newGrid = [];
+  var response = new SAT.Response();
+
+  for(var i = 0; i < grid.length; i++) {
+    var square = grid[i];
+
+    var collided = SAT.testPolygonPolygon(square, this.SATPolygon, response);
+
+    if(collided && response.aInB) {
+      newGrid.push(square);
+    }
+
+    response.clear();
+  }
+
+  return newGrid;
+};
+
+Block.prototype._filterGridOverlap = function(grid) {
+  var removals = [];
+
+  for(var i = 0; i < grid.length - 1; i++) {
+    for(var j = i + 1; j < grid.length; j++) {
+      var square1 = grid[i];
+      var square2 = grid[j];
+
+      if(square1.edge === square2.edge) {
+        continue;
+      }
+
+      if(SAT.testPolygonPolygon(square1, square2)) {
+        if(square1.grid >= square2.grid) {
+          removals.push(i);
+        }
+        else {
+          removals.push(j);
+        }
+      }
+    }
+  }
+
+  removals = _.uniq(removals);
+  var newGrid = _.filter(grid, function(square, i) {
+    return !_.contains(removals, i);
+  });
+
+  return newGrid;
+};
+
+Block.prototype._divideGrid = function(grid) {
+  var filterEdge = function(edge) { return function(square) { return square.edge === edge; }; };
+  var filterColumn = function(column) { return function(square) { return square.column === column; }; };
+
+  var divisions = [];
+
+  for(var i = 0; i < this.points.length; i++) {
+    var squares = _.filter(grid, filterEdge(i));
+    var columns = _.chain(squares).pluck('column').uniq().value();
+    var lastColumnSize = -1;
+    var division = null;
+
+    for(var j = 0; j < columns.length; j++) {
+      var column = _.filter(squares, filterColumn(columns[j]));
+
+      if(column.length !== lastColumnSize || division.length >= 4) {
+        if(division) {
+          divisions.push(_.flatten(division));
+        }
+
+        division = [];
+      }
+
+      division.push(column);
+      lastColumnSize = column.length;
+    }
+
+    if(division) {
+      divisions.push(_.flatten(division));
+    }
+  }
+
+  console.log(divisions.length);
+
+  for(var i = 0; i < divisions.length; i++) {
+    var division = divisions[i];
+
+    var pos = division[0].offset;
+    var columns = _.chain(division).pluck('column').uniq().value().length;
+    var rows = _.chain(division).pluck('row').uniq().value().length;
+
+    console.log(columns, rows);
+
+    var building = new Building(this.group, pos.x, pos.y, rows, 3, columns);
+    building.solidChance = 0.7;
+    building.heightDampener = 0.1;
+    building.generate();
+    building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), division[0].a);
+    building.mesh.position.y += 1.25;
+  }
+
+};
+
+Block.prototype._debugBlock = function() {
+  var i;
+  var geometry = new THREE.Geometry();
+  var material = new THREE.MeshNormalMaterial({ wireframe: true });
+  var mesh = new THREE.Mesh(geometry, material);
+
+  for(i = 0; i < this.points.length; i++) {
+    geometry.vertices.push(this.points[i].clone());
+  }
+
+  for(i = 0; i < this.points.length - 2; i++) {
+    var face = new THREE.Face3(0, i + 1, i + 2);
+    face.normal.y = -1;
+    geometry.faces.push(face);
+  }
+
+  this.debug.add(mesh);
+};
+
+Block.prototype._debugGrid = function(grid) {
+  var material = new THREE.MeshNormalMaterial({ wireframe: true });
+
+  for(var j = 0; j < grid.length; j++) {
+    var square = grid[j];
+
+    var geometry = new THREE.Geometry();
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[0].x, 0, square.calcPoints[0].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[1].x, 0, square.calcPoints[1].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[2].x, 0, square.calcPoints[2].y));
+    geometry.vertices.push(new THREE.Vector3(square.calcPoints[3].x, 0, square.calcPoints[3].y));
+
+    geometry.faces.push(new THREE.Face3(0, 1, 2));
+    geometry.faces.push(new THREE.Face3(0, 2, 3));
+
+    geometry.faces[0].normal = new THREE.Vector3(0, 1, 0);
+    geometry.faces[1].normal = new THREE.Vector3(0, 1, 0);
+
+    var mesh = new THREE.Mesh(geometry, material);
+    this.debug.add(mesh);
+  }
+};
+
+module.exports = Block;
+},{"../building/building":22,"sat":16,"three":19,"underscore":21}],31:[function(require,module,exports){
+'use strict';
+
 var _          = require('underscore');
 var THREE      = require('three');
 var SAT        = require('sat');
 var Chance     = require('chance');
 var seedrandom = require('seedrandom');
+
+var Block = require('./block');
 
 var chance = new Chance();
 
@@ -50386,76 +50622,27 @@ var Town = function(parent, width, depth) {
 };
 
 Town.prototype.generate = function() {
-  var t0 = performance.now();
-
   this.seed = Date.now();
   this.rng = seedrandom(this.seed);
   chance.random = this.rng;
 
+  var n = function(min, max) {
+    return chance.integer({ min: min, max: max });
+  };
+
   this.group.remove.apply(this.group, this.group.children);
   this.debug.remove.apply(this.debug, this.debug.children);
 
-  var material = new THREE.MeshNormalMaterial({ wireframe: true });
-  var geometry = new THREE.Geometry();
   var points = [];
+  points.push(new THREE.Vector3(n(10, 30), 0, n(10, 20)));
+  points.push(new THREE.Vector3(n(10, 20), 0, n(-20, -10)));
+  points.push(new THREE.Vector3(n(-20, -10), 0, n(-20, -10)));
+  points.push(new THREE.Vector3(n(-20, -10), 0, n(10, 20)));
 
-  var x = chance.integer({ min: 0, max: 30 });
-  var z = chance.integer({ min: 0, max: 30 });
-  geometry.vertices.push(new THREE.Vector3(x, 0, z));
-  points.push(new THREE.Vector3(x, 0, z));
-
-  var x = chance.integer({ min: 0, max: 30 });
-  var z = chance.integer({ min: -30, max: 0 });
-  geometry.vertices.push(new THREE.Vector3(x, 0, z));
-  points.push(new THREE.Vector3(x, 0, z));
-
-  var x = chance.integer({ min: -30, max: 0 });
-  var z = chance.integer({ min: -30, max: 0 });
-  geometry.vertices.push(new THREE.Vector3(x, 0, z));
-  points.push(new THREE.Vector3(x, 0, z));
-
-  var x = chance.integer({ min: -30, max: 0 });
-  var z = chance.integer({ min: 0, max: 30 });
-  geometry.vertices.push(new THREE.Vector3(x, 0, z));
-  points.push(new THREE.Vector3(x, 0, z));
-
-  this.polygon = new SAT.Polygon(new SAT.Vector(0, 0), [
-    new SAT.Vector(points[0].x, points[0].z), 
-    new SAT.Vector(points[1].x, points[1].z), 
-    new SAT.Vector(points[2].x, points[2].z), 
-    new SAT.Vector(points[3].x, points[3].z), 
-  ]);
-
-  var m;
-  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-  m.position.x = this.polygon.calcPoints[0].x;
-  m.position.z = this.polygon.calcPoints[0].y;
-  this.group.add(m);
-  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-  m.position.x = this.polygon.calcPoints[1].x;
-  m.position.z = this.polygon.calcPoints[1].y;
-  this.group.add(m);
-  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-  m.position.x = this.polygon.calcPoints[2].x;
-  m.position.z = this.polygon.calcPoints[2].y;
-  this.group.add(m);
-  m = new THREE.Mesh(new THREE.SphereGeometry(0.1), material);
-  m.position.x = this.polygon.calcPoints[3].x;
-  m.position.z = this.polygon.calcPoints[3].y;
-  this.group.add(m);
-
-  geometry.faces.push(new THREE.Face3(0, 1, 2));
-  geometry.faces.push(new THREE.Face3(0, 2, 3));
-  geometry.faces[0].normal.y = -1;
-  geometry.faces[1].normal.y = -1;
-  this.group.add(new THREE.Mesh(geometry, material));
-
-  this._getGrids(points);
+  var block = new Block(this.group, points);
+  block.generate();
 
   this.parent.add(this.group);
-
-  var t1 = performance.now();
-  console.log('generate() ' + (t1 - t0) + 'ms');
 };
 
 Town.prototype.randomSeed = function() {
@@ -50467,106 +50654,5 @@ Town.prototype.generateRandomSeed = function() {
   this.generate();
 };
 
-Town.prototype._getGrids = function(points) {
-  var i, j, k, l;
-  var material = new THREE.MeshNormalMaterial({ wireframe: true });
-
-  var grids = [];
-
-  for(i = 0; i < 4; i++) {
-    var start = points[i];
-    var end = (i < points.length -1) ? points[i + 1] : points[0];
-    var distance = start.distanceTo(end);
-
-    var normal = end.clone().sub(start).normalize();
-    var perp = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-    var angle1 = normal.angleTo(new THREE.Vector3(0, 0, 1));
-    var angle2 = normal.angleTo(new THREE.Vector3(0, 0, -1));
-
-    var angle = normal.x < 0 ? angle1 : angle2; 
-    var squares = [];
-
-    for(j = 1.5; j < distance; j += 3) {
-      for(k = 1.5; k < 29; k += 3) {
-        var pos = start.clone()
-          .add(normal.setLength(j))
-          .add(perp.setLength(k + 0.005));
-
-        var square = new SAT.Polygon(new SAT.Vector(0, 0), [
-          new SAT.Vector(-1.49, -1.49),
-          new SAT.Vector(+1.49, -1.49),
-          new SAT.Vector(+1.49, +1.49),
-          new SAT.Vector(-1.49, +1.49),
-        ]);
-
-        square.depth = k;
-
-        square.setOffset(new SAT.Vector(pos.x, pos.z));
-        square.rotate(angle);
-
-        squares.push(square);
-      }
-    }
-
-    var response = new SAT.Response();
-    squares = _.filter(squares, function(square) {
-      response.clear();
-      var collided = SAT.testPolygonPolygon(square, this.polygon, response);
-      return collided && response.aInB;
-    }, this);
-
-    grids.push(squares);
-  }
-
-  console.log(grids);
-
-  grids = _.flatten(grids);
-  console.log(grids.length);
-  var deletes = [];
-
-  for(i = 0; i < grids.length - 1; i++) {
-    for(j = i + 1; j < grids.length; j++) {
-      var square1 = grids[i];
-      var square2 = grids[j];
-
-      if(SAT.testPolygonPolygon(square1, square2)) {
-        if(square1.depth >= square2.depth) {
-          deletes.push(i);
-        }
-        else {
-          deletes.push(j);
-        }
-      }
-    }
-  }
-
-  deletes = _.uniq(deletes);
-  console.log(deletes, grids.length);
-
-  for(j = 0; j < grids.length; j++) {
-    if(_.contains(deletes, j)) {
-      continue;
-    }
-
-    var square = grids[j];
-
-    var geometry = new THREE.Geometry();
-    geometry.vertices.push(new THREE.Vector3(square.calcPoints[0].x, 0, square.calcPoints[0].y));
-    geometry.vertices.push(new THREE.Vector3(square.calcPoints[1].x, 0, square.calcPoints[1].y));
-    geometry.vertices.push(new THREE.Vector3(square.calcPoints[2].x, 0, square.calcPoints[2].y));
-    geometry.vertices.push(new THREE.Vector3(square.calcPoints[3].x, 0, square.calcPoints[3].y));
-
-    geometry.faces.push(new THREE.Face3(0, 1, 2));
-    geometry.faces.push(new THREE.Face3(0, 2, 3));
-
-    geometry.faces[0].normal = new THREE.Vector3(0, 1, 0);
-    geometry.faces[1].normal = new THREE.Vector3(0, 1, 0);
-
-    var m = new THREE.Mesh(geometry, material);
-    this.group.add(m);
-  }
-
-};
-
 module.exports = Town;
-},{"chance":1,"sat":16,"seedrandom":17,"three":19,"underscore":21}]},{},[24])
+},{"./block":30,"chance":1,"sat":16,"seedrandom":17,"three":19,"underscore":21}]},{},[24])
