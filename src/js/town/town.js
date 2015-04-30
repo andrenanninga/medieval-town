@@ -2,11 +2,12 @@
 
 var _          = require('underscore');
 var THREE      = require('three');
-var SAT        = require('sat');
 var Chance     = require('chance');
+var Voronoi    = require('voronoi');
+var Polygon    = require('polygon');
 var seedrandom = require('seedrandom');
 
-var Block = require('./block');
+var Block      = require('./block');
 
 var chance = new Chance();
 
@@ -28,21 +29,53 @@ Town.prototype.generate = function() {
   this.rng = seedrandom(this.seed);
   chance.random = this.rng;
 
-  var n = function(min, max) {
-    return chance.integer({ min: min, max: max });
-  };
+  this.voronoi = new Voronoi();
+  var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
+  var sites = [];
 
-  this.group.remove.apply(this.group, this.group.children);
-  this.debug.remove.apply(this.debug, this.debug.children);
+  for(var i = 0; i < 20; i++) {
+    var x = chance.integer({ min: -50, max: 50 });
+    var y = chance.integer({ min: -50, max: 50 });
 
-  var points = [];
-  points.push(new THREE.Vector3(n(10, 30), 0, n(10, 20)));
-  points.push(new THREE.Vector3(n(10, 20), 0, n(-20, -10)));
-  points.push(new THREE.Vector3(n(-20, -10), 0, n(-20, -10)));
-  points.push(new THREE.Vector3(n(-20, -10), 0, n(10, 20)));
+    sites.push({ x: x, y: y });
+  }
 
-  var block = new Block(this.group, points);
-  block.generate();
+  this.diagram = this.voronoi.compute(sites, bbox);
+  console.log(this.diagram);
+
+  for(var i = 0; i < this.diagram.cells.length; i++) {
+    var cell = this.diagram.cells[i];
+    var points = [];
+
+    for(var j = 0; j < cell.halfedges.length; j++) {
+      var halfedge = cell.halfedges[j];
+
+      points.push(halfedge.getStartpoint());
+    }
+
+    var polygon = new Polygon(points);
+    polygon = polygon.offset(-3);
+    polygon.rewind(true);
+
+    var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
+    block.generate();
+  }
+
+  // var n = function(min, max) {
+  //   return chance.integer({ min: min, max: max });
+  // };
+
+  // this.group.remove.apply(this.group, this.group.children);
+  // this.debug.remove.apply(this.debug, this.debug.children);
+
+  // var points = [];
+  // points.push(new THREE.Vector3(n(10, 30), 0, n(10, 20)));
+  // points.push(new THREE.Vector3(n(10, 20), 0, n(-20, -10)));
+  // points.push(new THREE.Vector3(n(-20, -10), 0, n(-20, -10)));
+  // points.push(new THREE.Vector3(n(-20, -10), 0, n(10, 20)));
+
+  // var block = new Block(this.group, points);
+  // block.generate();
 
   this.parent.add(this.group);
 };

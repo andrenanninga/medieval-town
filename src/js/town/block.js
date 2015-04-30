@@ -1,23 +1,24 @@
 'use strict';
 
-var _ = require('underscore');
-var THREE = require('three');
-var SAT   = require('sat');
+var _         = require('underscore');
+var THREE     = require('three');
+var SAT       = require('sat');
+var tinycolor = require('tinycolor2');
 
-var Building = require('../building/building');
+var Building  = require('../building/building');
 
 var Block = function(parent, points) {
   this.parent = parent;
   this.points = points;
 
-  this.marginWidth = 1;
-  this.marginDepth = 1;
+  this.marginWidth = 0;
+  this.marginDepth = 0;
   this.squareSize = 3;
   this.depth = 3;
 
   this.SATPolygon = new SAT.Polygon(
     new SAT.Vector(0, 0), 
-    _.map(this.points, function(point) { return new SAT.Vector(point.x, point.z); })
+    _.map(this.points, function(point) { return new SAT.Vector(point[0], point[1]); })
   );
 
   this.group = new THREE.Group();
@@ -25,8 +26,12 @@ var Block = function(parent, points) {
 };
 
 Block.prototype.generate = function() {
+  this.grid = this._getGrid();
+
   this._debugBlock();
-  this._debugGrid(this._getGrid());
+  // this._debugGrid(this.grid);
+
+  this._divideGrid(this.grid);
 
   this.parent.add(this.group);
   this.parent.add(this.debug);
@@ -39,6 +44,9 @@ Block.prototype._getGrid = function() {
     var start = this.points[i];
     var end = (i < this.points.length - 1) ? this.points[i + 1] : this.points[0];
 
+    start = new THREE.Vector3(start[0], 0, start[1]);
+    end = new THREE.Vector3(end[0], 0, end[1]);
+
     var edgeGrid = this._getGridOnEdge(i, start, end);
     grid.push(edgeGrid);
   }
@@ -46,8 +54,6 @@ Block.prototype._getGrid = function() {
   grid = _.flatten(grid);
   grid = this._filterGridOutside(grid);
   grid = this._filterGridOverlap(grid);
-
-  this._divideGrid(grid);
 
   return grid;
 };
@@ -67,7 +73,7 @@ Block.prototype._getGridOnEdge = function(edge, start, end) {
 
   var halfSquare = this.squareSize / 2;
   var widthStart = halfSquare + this.marginWidth;
-  var widthEnd = distance - this.marginWidth * 2;
+  var widthEnd = distance - widthStart * 2;
   var depthStart = halfSquare + this.marginDepth;
   var depthEnd = this.depth * this.squareSize + depthStart;
 
@@ -141,7 +147,7 @@ Block.prototype._filterGridOverlap = function(grid) {
       }
 
       if(SAT.testPolygonPolygon(square1, square2)) {
-        if(square1.grid >= square2.grid) {
+        if(square1.column >= square2.column) {
           removals.push(i);
         }
         else {
@@ -191,18 +197,15 @@ Block.prototype._divideGrid = function(grid) {
     }
   }
 
-  console.log(divisions.length);
-
   for(var i = 0; i < divisions.length; i++) {
     var division = divisions[i];
 
     var pos = division[0].offset;
     var columns = _.chain(division).pluck('column').uniq().value().length;
     var rows = _.chain(division).pluck('row').uniq().value().length;
+    var height = 2 + Math.round(Math.random() * 2);
 
-    console.log(columns, rows);
-
-    var building = new Building(this.group, pos.x, pos.y, rows, 3, columns);
+    var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
     building.solidChance = 0.7;
     building.heightDampener = 0.1;
     building.generate();
@@ -215,11 +218,11 @@ Block.prototype._divideGrid = function(grid) {
 Block.prototype._debugBlock = function() {
   var i;
   var geometry = new THREE.Geometry();
-  var material = new THREE.MeshNormalMaterial({ wireframe: true });
+  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString() });
   var mesh = new THREE.Mesh(geometry, material);
 
   for(i = 0; i < this.points.length; i++) {
-    geometry.vertices.push(this.points[i].clone());
+    geometry.vertices.push(new THREE.Vector3(this.points[i][0], 0, this.points[i][1]));
   }
 
   for(i = 0; i < this.points.length - 2; i++) {
