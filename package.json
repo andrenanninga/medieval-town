@@ -20,7 +20,10 @@
     "three": "^0.70.0",
     "tinycolor": "0.0.1",
     "tinycolor2": "^1.1.2",
-    "underscore": "^1.8.3"
+    "underscore": "^1.8.3",
+    "voronoi": "^1.0.0",
+    "operative": "^0.4.4",
+    "async": "^0.9.0"
   },
   "devDependencies": {
     "browserify": "^9.0.8",

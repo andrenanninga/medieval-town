@@ -1,9 +1,12 @@
 'use strict';
 
 var _         = require('underscore');
+var async     = require('async');
 var THREE     = require('three');
 var SAT       = require('sat');
 var tinycolor = require('tinycolor2');
+
+var BlockWorker = require('./blockWorker');
 
 var Building  = require('../building/building');
 
@@ -14,15 +17,8 @@ var Block = function(parent, points) {
   this.points = points;
   this.index = index++;
 
-  this.marginWidth = 0;
-  this.marginDepth = 0;
   this.squareSize = 3;
   this.depth = 3;
-
-  this.SATPolygon = new SAT.Polygon(
-    new SAT.Vector(0, 0), 
-    _.map(this.points, function(point) { return new SAT.Vector(point[0], point[1]); })
-  );
 
   this.group = new THREE.Group();
   this.debug = new THREE.Group();
@@ -30,201 +26,50 @@ var Block = function(parent, points) {
 
 Block.prototype.generate = function() {
   console.time('block.generate.' + this.index);
-  this.grid = this._getGrid();
+  var self = this;
 
-  this._debugBlock();
-  // this._debugGrid(this.grid);
+  async.waterfall([
+    function(cb) {
+      BlockWorker.getGrid(self.points, cb);
+    },
+    function(grid, cb) {
+      self._debugGrid(grid);
+      self._debugBlock();
 
-  this._divideGrid(this.grid);
+      BlockWorker.getSections(self.points, grid, cb);
+    },
+    function(sections) {
+      self._fillSections(sections);
+      console.timeEnd('block.generate.' + self.index);
+    }
+  ]);
 
-  this.parent.add(this.group);
   this.parent.add(this.debug);
-
-  console.timeEnd('block.generate.' + this.index);
+  this.parent.add(this.group);
 };
 
-Block.prototype._getGrid = function() {
-  var grid = [];
+Block.prototype._fillSections = function(sections) {
+  for(var i = 0; i < sections.length; i++) {
+    var section = sections[i];
 
-  for(var i = 0; i < this.points.length; i++) {
-    var start = this.points[i];
-    var end = (i < this.points.length - 1) ? this.points[i + 1] : this.points[0];
-
-    start = new THREE.Vector3(start[0], 0, start[1]);
-    end = new THREE.Vector3(end[0], 0, end[1]);
-
-    var edgeGrid = this._getGridOnEdge(i, start, end);
-    grid.push(edgeGrid);
-  }
-
-  grid = _.flatten(grid);
-  grid = this._filterGridOutside(grid);
-  grid = this._filterGridOverlap(grid);
-
-  return grid;
-};
-
-Block.prototype._getGridOnEdge = function(edge, start, end) {
-  var grid = [];
-
-  var distance = start.distanceTo(end);
-  var normal = end.clone().sub(start).normalize();
-  var perpendicular = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-  var angle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? 1 : -1));
-  var otherAngle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? -1 : 1));
-
-  if(normal.x < 0) {
-    otherAngle -= Math.PI;
-  }
-
-  var halfSquare = this.squareSize / 2;
-  var widthStart = halfSquare + this.marginWidth;
-  var widthEnd = distance - widthStart * 2;
-  var depthStart = halfSquare + this.marginDepth;
-  var depthEnd = this.depth * this.squareSize + depthStart;
-
-  var column = 0;
-
-  for(var i = widthStart; i < widthEnd; i += this.squareSize) {
-    var row = 0;
-
-    for(var j = depthStart; j < depthEnd; j += this.squareSize) {
-
-      var position = start.clone()
-        .add(normal.setLength(i))
-        .add(perpendicular.setLength(j + 0.005));
-
-      var square = new SAT.Polygon(new SAT.Vector(0, 0), [
-        new SAT.Vector(-halfSquare, -halfSquare),
-        new SAT.Vector(+halfSquare, -halfSquare),
-        new SAT.Vector(+halfSquare, +halfSquare),
-        new SAT.Vector(-halfSquare, +halfSquare)
-      ]);
-
-      square.setOffset(new SAT.Vector(position.x, position.z));
-      square.rotate(angle);
-
-      square.a = otherAngle;
-
-      square.edge = edge;
-      square.row = row;
-      square.column = column;
-
-      grid.push(square);
-
-      row += 1;
-    }
-
-    column += 1;
-  }
-
-  return grid;
-};
-
-Block.prototype._filterGridOutside = function(grid) {
-  var newGrid = [];
-  var response = new SAT.Response();
-
-  for(var i = 0; i < grid.length; i++) {
-    var square = grid[i];
-
-    var collided = SAT.testPolygonPolygon(square, this.SATPolygon, response);
-
-    if(collided && response.aInB) {
-      newGrid.push(square);
-    }
-
-    response.clear();
-  }
-
-  return newGrid;
-};
-
-Block.prototype._filterGridOverlap = function(grid) {
-  var removals = [];
-
-  for(var i = 0; i < grid.length - 1; i++) {
-    for(var j = i + 1; j < grid.length; j++) {
-      var square1 = grid[i];
-      var square2 = grid[j];
-
-      if(square1.edge === square2.edge) {
-        continue;
-      }
-
-      if(SAT.testPolygonPolygon(square1, square2)) {
-        if(square1.column >= square2.column) {
-          removals.push(i);
-        }
-        else {
-          removals.push(j);
-        }
-      }
-    }
-  }
-
-  removals = _.uniq(removals);
-  var newGrid = _.filter(grid, function(square, i) {
-    return !_.contains(removals, i);
-  });
-
-  return newGrid;
-};
-
-Block.prototype._divideGrid = function(grid) {
-  var filterEdge = function(edge) { return function(square) { return square.edge === edge; }; };
-  var filterColumn = function(column) { return function(square) { return square.column === column; }; };
-
-  var divisions = [];
-
-  for(var i = 0; i < this.points.length; i++) {
-    var squares = _.filter(grid, filterEdge(i));
-    var columns = _.chain(squares).pluck('column').uniq().value();
-    var lastColumnSize = -1;
-    var division = null;
-
-    for(var j = 0; j < columns.length; j++) {
-      var column = _.filter(squares, filterColumn(columns[j]));
-
-      if(column.length !== lastColumnSize || division.length >= 7) {
-        if(division) {
-          divisions.push(_.flatten(division));
-        }
-
-        division = [];
-      }
-
-      division.push(column);
-      lastColumnSize = column.length;
-    }
-
-    if(division) {
-      divisions.push(_.flatten(division));
-    }
-  }
-
-  for(var i = 0; i < divisions.length; i++) {
-    var division = divisions[i];
-
-    var pos = division[0].offset;
-    var columns = _.chain(division).pluck('column').uniq().value().length;
-    var rows = _.chain(division).pluck('row').uniq().value().length;
+    var pos = section[0].offset;
+    var columns = _.chain(section).pluck('column').uniq().value().length;
+    var rows = _.chain(section).pluck('row').uniq().value().length;
     var height = 2 + Math.round(Math.random() * 2);
 
     var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
     building.solidChance = 0.8;
     building.heightDampener = 0.1;
     building.generate();
-    building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), division[0].a);
+    building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
     building.mesh.position.y += 1.25;
   }
-
 };
 
 Block.prototype._debugBlock = function() {
   var i;
   var geometry = new THREE.Geometry();
-  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString() });
+  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString(), wireframe: true });
   var mesh = new THREE.Mesh(geometry, material);
 
   for(i = 0; i < this.points.length; i++) {

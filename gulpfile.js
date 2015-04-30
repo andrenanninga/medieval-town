@@ -22,6 +22,19 @@ gulp.task('scripts', function() {
     .pipe(gulp.dest('./build/js'));
 });
 
+gulp.task('libs', function() {
+  var libs = [
+    './node_modules/operative/dist/operative.js',
+    './node_modules/underscore/underscore.js',
+    './node_modules/three/three.js',
+    './node_modules/sat/SAT.js',
+  ];
+
+  return gulp.src(libs)
+    .pipe(plumber())
+    .pipe(gulp.dest('./build/js/lib'));
+});
+
 gulp.task('html', function() {
   return gulp.src('src/html/index.html')
     .pipe(plumber())
@@ -75,6 +88,7 @@ gulp.task('build', function() {
     'html',
     'css',
     'scripts',
+    'libs',
     'reload'
   );
 });

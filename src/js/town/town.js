@@ -31,12 +31,12 @@ Town.prototype.generate = function() {
   chance.random = this.rng;
 
   this.voronoi = new Voronoi();
-  var bbox = {xl: -80, xr: 80, yt: -80, yb: 80 };
+  var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
   var sites = [];
 
-  for(var i = 0; i < 20; i++) {
-    var x = chance.integer({ min: -80, max: 80 });
-    var y = chance.integer({ min: -80, max: 80 });
+  for(var i = 0; i < 15; i++) {
+    var x = chance.integer({ min: -50, max: 50 });
+    var y = chance.integer({ min: -50, max: 50 });
 
     sites.push({ x: x, y: y });
   }
@@ -57,6 +57,7 @@ Town.prototype.generate = function() {
     var polygon = new Polygon(points);
     polygon = polygon.offset(-3);
     polygon.rewind(true);
+
     if(polygon.area() > 250) {
       var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
       block.generate();
