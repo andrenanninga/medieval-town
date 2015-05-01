@@ -13,6 +13,8 @@ var Town     = require('./town/town');
 var chance = Chance();
 global.THREE = THREE;
 
+global.queue = [];
+
 require('./plugins/MTLLoader');
 require('./plugins/OBJMTLLoader');
 require('./plugins/OrbitControls');
@@ -25,8 +27,9 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-// camera.position.x = 25;
-camera.position.y = 125;
+camera.position.x = 75;
+camera.position.y = 75;
+camera.position.z = 75;
 
 var controls = new THREE.OrbitControls(camera);
 controls.damping = 0.2;
@@ -92,9 +95,15 @@ models.load(function() {
   // gui.add(building, 'generate');
 });
 
+var frame = 0;
 var render = function () {
   stats.begin();
+  frame++;
 
+  if(queue.length > 0 && frame % 4 === 0) {
+    queue.pop()();
+  }
+  
   controls.update();
   
   light.position.set(camera.position.x, camera.position.y, camera.position.z);

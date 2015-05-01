@@ -58,7 +58,7 @@ Town.prototype.generate = function() {
     polygon = polygon.offset(-3);
     polygon.rewind(true);
 
-    if(polygon.area() > 250) {
+    if(polygon.area() > 0) {
       var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
       block.generate();
     }

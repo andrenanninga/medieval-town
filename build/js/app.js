@@ -1124,8 +1124,8 @@
 
 }());
 
-}).call(this,require("ngpmcQ"))
-},{"ngpmcQ":16}],2:[function(require,module,exports){
+}).call(this,require("oMfpAn"))
+},{"oMfpAn":16}],2:[function(require,module,exports){
 (function (Buffer){
 //  Chance.js 0.7.3
 //  http://chancejs.com
@@ -55510,6 +55510,8 @@ var Town     = require('./town/town');
 var chance = Chance();
 global.THREE = THREE;
 
+global.queue = [];
+
 require('./plugins/MTLLoader');
 require('./plugins/OBJMTLLoader');
 require('./plugins/OrbitControls');
@@ -55522,8 +55524,9 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 var camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-// camera.position.x = 25;
-camera.position.y = 125;
+camera.position.x = 75;
+camera.position.y = 75;
+camera.position.z = 75;
 
 var controls = new THREE.OrbitControls(camera);
 controls.damping = 0.2;
@@ -55589,9 +55592,15 @@ models.load(function() {
   // gui.add(building, 'generate');
 });
 
+var frame = 0;
 var render = function () {
   stats.begin();
+  frame++;
 
+  if(queue.length > 0 && frame % 4 === 0) {
+    queue.pop()();
+  }
+  
   controls.update();
   
   light.position.set(camera.position.x, camera.position.y, camera.position.z);
@@ -57303,19 +57312,21 @@ Block.prototype.generate = function() {
 
 Block.prototype._fillSections = function(sections) {
   for(var i = 0; i < sections.length; i++) {
-    var section = sections[i];
+    var func = _.bind(function(section) {
+      var pos = section[0].offset;
+      var columns = _.chain(section).pluck('column').uniq().value().length;
+      var rows = _.chain(section).pluck('row').uniq().value().length;
+      var height = 2 + Math.round(Math.random() * 2);
 
-    var pos = section[0].offset;
-    var columns = _.chain(section).pluck('column').uniq().value().length;
-    var rows = _.chain(section).pluck('row').uniq().value().length;
-    var height = 2 + Math.round(Math.random() * 2);
+      var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
+      building.solidChance = 0.8;
+      building.heightDampener = 0.1;
+      building.generate();
+      building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
+      building.mesh.position.y += 1.25;
+    }, this, sections[i]);
 
-    var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-    building.solidChance = 0.8;
-    building.heightDampener = 0.1;
-    building.generate();
-    building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
-    building.mesh.position.y += 1.25;
+    queue.push(func);
   }
 };
 
@@ -57390,9 +57401,7 @@ var BlockWorker = operative({
     grid = this._filterGridOutside(points, grid);
     grid = this._filterGridOverlap(grid);
 
-    setTimeout(function() {
-      callback(null, grid);
-    }, 10000 * Math.random())
+    callback(null, grid);
   },
 
   _getGridOnEdge: function(edge, start, end) {
@@ -57552,7 +57561,7 @@ var BlockWorker = operative({
 }, [
   'js/lib/underscore.js',
   'js/lib/three.js',
-  'js/lib/sat.js',
+  'js/lib/SAT.js',
 ]);
 
 module.exports = BlockWorker;
@@ -57566,7 +57575,7 @@ var Voronoi    = require('voronoi');
 var Polygon    = require('polygon');
 var seedrandom = require('seedrandom');
 
-var Block      = require('./block.new');
+var Block      = require('./block');
 
 var chance = new Chance();
 
@@ -57617,7 +57626,7 @@ Town.prototype.generate = function() {
     polygon = polygon.offset(-3);
     polygon.rewind(true);
 
-    if(polygon.area() > 250) {
+    if(polygon.area() > 0) {
       var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
       block.generate();
     }
@@ -57638,4 +57647,4 @@ Town.prototype.generateRandomSeed = function() {
 };
 
 module.exports = Town;
-},{"./block.new":49,"chance":2,"polygon":33,"seedrandom":35,"three":37,"underscore":39,"voronoi":40}]},{},[43])
+},{"./block":49,"chance":2,"polygon":33,"seedrandom":35,"three":37,"underscore":39,"voronoi":40}]},{},[43])

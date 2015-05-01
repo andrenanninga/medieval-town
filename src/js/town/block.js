@@ -50,19 +50,21 @@ Block.prototype.generate = function() {
 
 Block.prototype._fillSections = function(sections) {
   for(var i = 0; i < sections.length; i++) {
-    var section = sections[i];
+    var func = _.bind(function(section) {
+      var pos = section[0].offset;
+      var columns = _.chain(section).pluck('column').uniq().value().length;
+      var rows = _.chain(section).pluck('row').uniq().value().length;
+      var height = 2 + Math.round(Math.random() * 2);
 
-    var pos = section[0].offset;
-    var columns = _.chain(section).pluck('column').uniq().value().length;
-    var rows = _.chain(section).pluck('row').uniq().value().length;
-    var height = 2 + Math.round(Math.random() * 2);
+      var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
+      building.solidChance = 0.8;
+      building.heightDampener = 0.1;
+      building.generate();
+      building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
+      building.mesh.position.y += 1.25;
+    }, this, sections[i]);
 
-    var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-    building.solidChance = 0.8;
-    building.heightDampener = 0.1;
-    building.generate();
-    building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
-    building.mesh.position.y += 1.25;
+    queue.push(func);
   }
 };
 

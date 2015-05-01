@@ -185,7 +185,7 @@ var BlockWorker = operative({
 }, [
   'js/lib/underscore.js',
   'js/lib/three.js',
-  'js/lib/sat.js',
+  'js/lib/SAT.js',
 ]);
 
 module.exports = BlockWorker;
