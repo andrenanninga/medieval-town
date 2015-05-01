@@ -6,10 +6,12 @@ var _         = require('underscore');
 var THREE     = require('three');
 var SAT       = require('sat');
 var tinycolor = require('tinycolor2');
+var Chance    = require('chance');
 
 var Building  = require('../building/building');
 
 var index = 0;
+var chance = new Chance();
 
 var Block = function(parent, points) {
   this.parent = parent;
@@ -17,7 +19,7 @@ var Block = function(parent, points) {
   this.index = index++;
 
   this.squareSize = 3;
-  this.depth = 3;
+  this.depth = 4;
 
   this.group = new THREE.Group();
   this.debug = new THREE.Group();
@@ -30,7 +32,7 @@ Block.prototype.generate = function() {
   this.grid = this.getGrid();
   this.sections = this.getSections(this.grid);
 
-  self._debugGrid(this.grid);
+  // self._debugGrid(this.grid);
   self._debugBlock();
 
   this._fillSections(this.sections);
@@ -52,7 +54,6 @@ Block.prototype.getGrid = function() {
     var edgeGrid = this._getGridOnEdge(i, start, end);
     grid.push(edgeGrid);
   }
-
 
   grid = _.flatten(grid);
   grid = this._filterGridOutside(grid);
@@ -219,11 +220,11 @@ Block.prototype._fillSections = function(sections) {
       var pos = section[0].offset;
       var columns = _.chain(section).pluck('column').uniq().value().length;
       var rows = _.chain(section).pluck('row').uniq().value().length;
-      var height = 2 + Math.round(Math.random() * 2);
+      var height = chance.weighted([2, 3, 4, 5, 7, 8], [10, 10, 8, 8, 2, 1]);
 
       var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-      building.solidChance = 0.8;
-      building.heightDampener = 0.1;
+      building.solidChance = chance.floating({ min: 0.5, max: 0.7 });
+      building.heightDampener = chance.floating({ min: 0.09, max: 0.12 }) - height / 400;
       building.generate();
       building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
       building.mesh.position.y += 1.25;
@@ -236,7 +237,7 @@ Block.prototype._fillSections = function(sections) {
 Block.prototype._debugBlock = function() {
   var i;
   var geometry = new THREE.Geometry();
-  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString(), wireframe: true });
+  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString(), wireframe: false });
   var mesh = new THREE.Mesh(geometry, material);
 
   for(i = 0; i < this.points.length; i++) {

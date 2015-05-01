@@ -33,33 +33,47 @@ Town.prototype.generate = function() {
   chance.random = this.rng;
 
   this.voronoi = new Voronoi();
-  var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
+  var bbox = {xl: -300, xr: 300, yt: -300, yb: 300 };
   var sites = [];
 
-  for(var i = 0; i < 10; i++) {
-    var x = chance.integer({ min: -50, max: 50 });
-    var y = chance.integer({ min: -50, max: 50 });
+  for(var x = -300; x <= 300; x++) {
+    for(var y = -300; y <= 300; y++) {
+      var distance = Math.sqrt(x*x + y*y);
 
-    sites.push({ x: x, y: y });
+      if(this.rng() < 0.0011 - distance / 220000) {
+        sites.push({ x: x, y: y });
+      }
+    }
   }
 
   this.diagram = this.voronoi.compute(sites, bbox);
+  console.log(this.diagram);
 
   for(var i = 0; i < this.diagram.cells.length; i++) {
     var cell = this.diagram.cells[i];
     var points = [];
+    var edge = false;
 
     for(var j = 0; j < cell.halfedges.length; j++) {
       var halfedge = cell.halfedges[j];
-
+      
+      if(halfedge.edge.rSite === null) {
+        edge = true;
+        break;
+      }
+      
       points.push(halfedge.getStartpoint());
+    }
+
+    if(edge) {
+      continue;
     }
 
     var polygon = new Polygon(points);
     polygon = polygon.offset(-3);
     polygon.rewind(true);
 
-    if(polygon.area() > 0) {
+    if(polygon.area() > 250) {
       var func = _.bind(function(points) {
         var block = new Block(this.group, _.invoke(points, 'toArray'));
         block.generate();

@@ -56078,10 +56078,12 @@ var _         = require('underscore');
 var THREE     = require('three');
 var SAT       = require('sat');
 var tinycolor = require('tinycolor2');
+var Chance    = require('chance');
 
 var Building  = require('../building/building');
 
 var index = 0;
+var chance = new Chance();
 
 var Block = function(parent, points) {
   this.parent = parent;
@@ -56089,7 +56091,7 @@ var Block = function(parent, points) {
   this.index = index++;
 
   this.squareSize = 3;
-  this.depth = 3;
+  this.depth = 4;
 
   this.group = new THREE.Group();
   this.debug = new THREE.Group();
@@ -56102,7 +56104,7 @@ Block.prototype.generate = function() {
   this.grid = this.getGrid();
   this.sections = this.getSections(this.grid);
 
-  self._debugGrid(this.grid);
+  // self._debugGrid(this.grid);
   self._debugBlock();
 
   this._fillSections(this.sections);
@@ -56124,7 +56126,6 @@ Block.prototype.getGrid = function() {
     var edgeGrid = this._getGridOnEdge(i, start, end);
     grid.push(edgeGrid);
   }
-
 
   grid = _.flatten(grid);
   grid = this._filterGridOutside(grid);
@@ -56291,11 +56292,11 @@ Block.prototype._fillSections = function(sections) {
       var pos = section[0].offset;
       var columns = _.chain(section).pluck('column').uniq().value().length;
       var rows = _.chain(section).pluck('row').uniq().value().length;
-      var height = 2 + Math.round(Math.random() * 2);
+      var height = chance.weighted([2, 3, 4, 5, 7, 8], [10, 10, 8, 8, 2, 1]);
 
       var building = new Building(this.group, pos.x, pos.y, rows, height, columns);
-      building.solidChance = 0.8;
-      building.heightDampener = 0.1;
+      building.solidChance = chance.floating({ min: 0.5, max: 0.7 });
+      building.heightDampener = chance.floating({ min: 0.09, max: 0.12 }) - height / 400;
       building.generate();
       building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
       building.mesh.position.y += 1.25;
@@ -56308,7 +56309,7 @@ Block.prototype._fillSections = function(sections) {
 Block.prototype._debugBlock = function() {
   var i;
   var geometry = new THREE.Geometry();
-  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString(), wireframe: true });
+  var material = new THREE.MeshBasicMaterial({ color: tinycolor.random().toHexString(), wireframe: false });
   var mesh = new THREE.Mesh(geometry, material);
 
   for(i = 0; i < this.points.length; i++) {
@@ -56348,7 +56349,7 @@ Block.prototype._debugGrid = function(grid) {
 };
 
 module.exports = Block;
-},{"../building/building":39,"sat":32,"three":35,"tinycolor2":36,"underscore":37}],48:[function(require,module,exports){
+},{"../building/building":39,"chance":1,"sat":32,"three":35,"tinycolor2":36,"underscore":37}],48:[function(require,module,exports){
 /* global queue */
 
 'use strict';
@@ -56384,33 +56385,47 @@ Town.prototype.generate = function() {
   chance.random = this.rng;
 
   this.voronoi = new Voronoi();
-  var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
+  var bbox = {xl: -300, xr: 300, yt: -300, yb: 300 };
   var sites = [];
 
-  for(var i = 0; i < 10; i++) {
-    var x = chance.integer({ min: -50, max: 50 });
-    var y = chance.integer({ min: -50, max: 50 });
+  for(var x = -300; x <= 300; x++) {
+    for(var y = -300; y <= 300; y++) {
+      var distance = Math.sqrt(x*x + y*y);
 
-    sites.push({ x: x, y: y });
+      if(this.rng() < 0.0011 - distance / 220000) {
+        sites.push({ x: x, y: y });
+      }
+    }
   }
 
   this.diagram = this.voronoi.compute(sites, bbox);
+  console.log(this.diagram);
 
   for(var i = 0; i < this.diagram.cells.length; i++) {
     var cell = this.diagram.cells[i];
     var points = [];
+    var edge = false;
 
     for(var j = 0; j < cell.halfedges.length; j++) {
       var halfedge = cell.halfedges[j];
-
+      
+      if(halfedge.edge.rSite === null) {
+        edge = true;
+        break;
+      }
+      
       points.push(halfedge.getStartpoint());
+    }
+
+    if(edge) {
+      continue;
     }
 
     var polygon = new Polygon(points);
     polygon = polygon.offset(-3);
     polygon.rewind(true);
 
-    if(polygon.area() > 0) {
+    if(polygon.area() > 250) {
       var func = _.bind(function(points) {
         var block = new Block(this.group, _.invoke(points, 'toArray'));
         block.generate();
