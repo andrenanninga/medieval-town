@@ -1,3 +1,5 @@
+/* global queue */
+
 'use strict';
 
 var _        = require('underscore');

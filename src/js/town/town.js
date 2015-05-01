@@ -1,3 +1,5 @@
+/* global queue */
+
 'use strict';
 
 var _          = require('underscore');
@@ -34,7 +36,7 @@ Town.prototype.generate = function() {
   var bbox = {xl: -50, xr: 50, yt: -50, yb: 50 };
   var sites = [];
 
-  for(var i = 0; i < 15; i++) {
+  for(var i = 0; i < 10; i++) {
     var x = chance.integer({ min: -50, max: 50 });
     var y = chance.integer({ min: -50, max: 50 });
 
@@ -42,7 +44,6 @@ Town.prototype.generate = function() {
   }
 
   this.diagram = this.voronoi.compute(sites, bbox);
-  console.log(this.diagram);
 
   for(var i = 0; i < this.diagram.cells.length; i++) {
     var cell = this.diagram.cells[i];
@@ -59,8 +60,12 @@ Town.prototype.generate = function() {
     polygon.rewind(true);
 
     if(polygon.area() > 0) {
-      var block = new Block(this.group, _.invoke(polygon.points, 'toArray'));
-      block.generate();
+      var func = _.bind(function(points) {
+        var block = new Block(this.group, _.invoke(points, 'toArray'));
+        block.generate();
+      }, this, polygon.points);
+
+      queue.push(func);
     }
   }
 
