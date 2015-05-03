@@ -18,7 +18,8 @@ var chance = new Chance();
 var colors = {
   'Wood': ['#4C3A1E', '#403019', '#332714', '#514534', '#46342D', '#2E302A'],
   'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B']
+  'RedCotton': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
+  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B'],
 };
 
 var index = 0;
@@ -177,6 +178,8 @@ Building.prototype.generate = function() {
     this.parent.remove(this.mesh);
   }
 
+  this.group.remove.apply(this.group, this.group.children);
+
   var material = new THREE.MeshFaceMaterial(_.values(materials));
   this.mesh = new THREE.Mesh(geometry, material);
   this.mesh.add(this.debug);
@@ -201,7 +204,7 @@ Building.prototype._setFloor = function(voxel) {
   var floor;
 
   if(voxel.y === 0 && !voxel.solid) {
-    // floor = models.get('Plate_Road_01');
+    // floor = models.get('Market_Stall_01');
     // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
     // this.group.add(floor);
   }

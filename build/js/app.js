@@ -53837,7 +53837,8 @@ var chance = new Chance();
 var colors = {
   'Wood': ['#4C3A1E', '#403019', '#332714', '#514534', '#46342D', '#2E302A'],
   'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B']
+  'RedCotton': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
+  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B'],
 };
 
 var index = 0;
@@ -53996,6 +53997,8 @@ Building.prototype.generate = function() {
     this.parent.remove(this.mesh);
   }
 
+  this.group.remove.apply(this.group, this.group.children);
+
   var material = new THREE.MeshFaceMaterial(_.values(materials));
   this.mesh = new THREE.Mesh(geometry, material);
   this.mesh.add(this.debug);
@@ -54020,7 +54023,7 @@ Building.prototype._setFloor = function(voxel) {
   var floor;
 
   if(voxel.y === 0 && !voxel.solid) {
-    // floor = models.get('Plate_Road_01');
+    // floor = models.get('Market_Stall_01');
     // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
     // this.group.add(floor);
   }
@@ -54468,6 +54471,12 @@ exports.load = function(cb) {
 exports.get = function(objectName) {
   return cache[objectName].clone();
 };
+
+exports.toJSON = function(objectName) {
+  return cache(objectName).toJSON();
+};
+
+exports.cache = cache;
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"./objects":43,"./plugins/MTLLoader":44,"./plugins/OBJMTLLoader":45,"nprogress":15,"three":35,"underscore":37}],43:[function(require,module,exports){
 module.exports=[
@@ -54495,6 +54504,7 @@ module.exports=[
   "Grey_Window_Square_Sill_01",
   "Iron_Door_01",
   "Lightpost_01",
+  "Market_Stall_01",
   "Plate_Corner_01",
   "Plate_Curve_01",
   "Plate_Pavement_01",
@@ -56110,7 +56120,7 @@ Block.prototype.generate = function() {
   this._fillSections(this.sections);
 
   this.parent.add(this.debug);
-  this.parent.add(this.group);
+  // this.parent.add(this.group);
 };
 
 Block.prototype.getGrid = function() {
@@ -56287,6 +56297,9 @@ Block.prototype.getSections = function(grid) {
 };
 
 Block.prototype._fillSections = function(sections) {
+  var finished = 0;
+  var total = sections.length;
+
   for(var i = 0; i < sections.length; i++) {
     var func = _.bind(function(section) {
       var pos = section[0].offset;
@@ -56300,10 +56313,65 @@ Block.prototype._fillSections = function(sections) {
       building.generate();
       building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
       building.mesh.position.y += 1.25;
+
+      finished += 1;
+      if(finished === total ) {
+        this.mergeMeshes();
+      }
+
     }, this, sections[i]);
 
     queue.push(func);
   }
+};
+
+Block.prototype.mergeMeshes = function() {
+  var self = this;
+  var geometry = new THREE.Geometry();
+  var materials = {};
+
+  this.group.updateMatrixWorld();
+
+  this.group.traverse(function(object) {
+    if(object.type === 'Mesh') {
+      object.position.setFromMatrixPosition(object.matrixWorld);
+      object.rotation.setFromRotationMatrix(object.matrixWorld);
+      object.updateMatrix();
+
+      // var index = _.chain(materials).keys().indexOf(object.material.name).value();
+
+      // if(index === -1) {
+      //   var material = object.material.clone();
+
+      //   var color = self.colors[object.material.name];
+      //   if(color) {
+      //     material.color.r = color.r;
+      //     material.color.g = color.g;
+      //     material.color.b = color.b;
+      //   }
+
+      //   materials[object.material.name] = material;
+      //   index = _.keys(materials).length - 1;
+      // }
+
+      geometry.merge(object.geometry, object.matrix, index);
+    }
+  });
+
+  if(this.mesh) {
+    this.parent.remove(this.mesh);
+  }
+
+  this.group.remove.apply(this.group, this.group.children);
+  delete this.group;
+
+  // var material = new THREE.MeshFaceMaterial(_.values(materials));
+  var material = new THREE.MeshNormalMaterial();
+  this.mesh = new THREE.Mesh(geometry, material);
+  // this.mesh.position.x = this.x;
+  // this.mesh.position.z = this.y;
+
+  this.parent.add(this.mesh);
 };
 
 Block.prototype._debugBlock = function() {
@@ -56385,18 +56453,27 @@ Town.prototype.generate = function() {
   chance.random = this.rng;
 
   this.voronoi = new Voronoi();
-  var bbox = {xl: -300, xr: 300, yt: -300, yb: 300 };
+  var bbox = {xl: -40, xr: 40, yt: -40, yb: 40 };
   var sites = [];
 
-  for(var x = -300; x <= 300; x++) {
-    for(var y = -300; y <= 300; y++) {
-      var distance = Math.sqrt(x*x + y*y);
+  for(var i = 0; i < 10; i++) {
+    var x = chance.integer({ min: -40, max: 40 });
+    var y = chance.integer({ min: -40, max: 40 });
 
-      if(this.rng() < 0.0011 - distance / 220000) {
-        sites.push({ x: x, y: y });
-      }
-    }
+    sites.push({ x: x, y: y });
   }
+
+  console.log(sites);
+
+  // for(var x = -300; x <= 300; x++) {
+  //   for(var y = -300; y <= 300; y++) {
+  //     var distance = Math.sqrt(x*x + y*y);
+
+  //     if(this.rng() < 0.0011 - distance / 220000) {
+  //       sites.push({ x: x, y: y });
+  //     }
+  //   }
+  // }
 
   this.diagram = this.voronoi.compute(sites, bbox);
   console.log(this.diagram);
@@ -56410,8 +56487,8 @@ Town.prototype.generate = function() {
       var halfedge = cell.halfedges[j];
       
       if(halfedge.edge.rSite === null) {
-        edge = true;
-        break;
+        // edge = true;
+        // break;
       }
       
       points.push(halfedge.getStartpoint());
@@ -56425,7 +56502,7 @@ Town.prototype.generate = function() {
     polygon = polygon.offset(-3);
     polygon.rewind(true);
 
-    if(polygon.area() > 250) {
+    if(polygon.area() > 0) {
       var func = _.bind(function(points) {
         var block = new Block(this.group, _.invoke(points, 'toArray'));
         block.generate();

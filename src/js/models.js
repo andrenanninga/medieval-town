@@ -41,3 +41,9 @@ exports.load = function(cb) {
 exports.get = function(objectName) {
   return cache[objectName].clone();
 };
+
+exports.toJSON = function(objectName) {
+  return cache(objectName).toJSON();
+};
+
+exports.cache = cache;

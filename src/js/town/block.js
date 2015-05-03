@@ -38,7 +38,7 @@ Block.prototype.generate = function() {
   this._fillSections(this.sections);
 
   this.parent.add(this.debug);
-  this.parent.add(this.group);
+  // this.parent.add(this.group);
 };
 
 Block.prototype.getGrid = function() {
@@ -215,6 +215,9 @@ Block.prototype.getSections = function(grid) {
 };
 
 Block.prototype._fillSections = function(sections) {
+  var finished = 0;
+  var total = sections.length;
+
   for(var i = 0; i < sections.length; i++) {
     var func = _.bind(function(section) {
       var pos = section[0].offset;
@@ -228,10 +231,65 @@ Block.prototype._fillSections = function(sections) {
       building.generate();
       building.mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section[0].a);
       building.mesh.position.y += 1.25;
+
+      finished += 1;
+      if(finished === total ) {
+        this.mergeMeshes();
+      }
+
     }, this, sections[i]);
 
     queue.push(func);
   }
+};
+
+Block.prototype.mergeMeshes = function() {
+  var self = this;
+  var geometry = new THREE.Geometry();
+  var materials = {};
+
+  this.group.updateMatrixWorld();
+
+  this.group.traverse(function(object) {
+    if(object.type === 'Mesh') {
+      object.position.setFromMatrixPosition(object.matrixWorld);
+      object.rotation.setFromRotationMatrix(object.matrixWorld);
+      object.updateMatrix();
+
+      // var index = _.chain(materials).keys().indexOf(object.material.name).value();
+
+      // if(index === -1) {
+      //   var material = object.material.clone();
+
+      //   var color = self.colors[object.material.name];
+      //   if(color) {
+      //     material.color.r = color.r;
+      //     material.color.g = color.g;
+      //     material.color.b = color.b;
+      //   }
+
+      //   materials[object.material.name] = material;
+      //   index = _.keys(materials).length - 1;
+      // }
+
+      geometry.merge(object.geometry, object.matrix, index);
+    }
+  });
+
+  if(this.mesh) {
+    this.parent.remove(this.mesh);
+  }
+
+  this.group.remove.apply(this.group, this.group.children);
+  delete this.group;
+
+  // var material = new THREE.MeshFaceMaterial(_.values(materials));
+  var material = new THREE.MeshNormalMaterial();
+  this.mesh = new THREE.Mesh(geometry, material);
+  // this.mesh.position.x = this.x;
+  // this.mesh.position.z = this.y;
+
+  this.parent.add(this.mesh);
 };
 
 Block.prototype._debugBlock = function() {

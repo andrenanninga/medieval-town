@@ -22,12 +22,29 @@ gulp.task('scripts', function() {
     .pipe(gulp.dest('./build/js'));
 });
 
+gulp.task('apps', function(){ 
+  return gulp.src('./src/js/app/*.js')
+    .pipe(plumber())
+    .pipe(browserify())
+    .pipe(gulp.dest('./build/js/app'));
+});
+
+gulp.task('building', function(){ 
+  return gulp.src('./src/js/building/building.js')
+    .pipe(plumber())
+    .pipe(browserify())
+    .pipe(gulp.dest('./build/js/app'));
+});
+
+
 gulp.task('libs', function() {
   var libs = [
     './node_modules/operative/dist/operative.js',
     './node_modules/underscore/underscore.js',
     './node_modules/three/three.js',
     './node_modules/sat/SAT.js',
+    './node_modules/fast-simplex-noise/fast-simplex-noise.js',
+    './src/js/plugins/ObjectLoader.js'
   ];
 
   return gulp.src(libs)
@@ -36,7 +53,7 @@ gulp.task('libs', function() {
 });
 
 gulp.task('html', function() {
-  return gulp.src('src/html/index.html')
+  return gulp.src('src/html/*.html')
     .pipe(plumber())
     .pipe(gulp.dest('./build'));
 });
@@ -87,6 +104,7 @@ gulp.task('build', function() {
   return runSequence(
     'html',
     'css',
+    'apps',
     'scripts',
     'libs',
     'reload'
