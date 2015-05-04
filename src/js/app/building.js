@@ -1,16 +1,15 @@
 'use strict';
 
-var _        = require('underscore');
-var THREE    = require('three');
-var Stats    = require('stats.js');
-var Dat      = require('dat-gui');
-var models   = require('../models');
-
-var Building = require('../building/building');
+var _              = require('underscore');
+var THREE          = require('three');
+var Stats          = require('stats.js');
+var Dat            = require('dat-gui');
+var models         = require('../models');
+var BuildingWorker = require('../building/buildingWorker');
+var queue          = require('../util/queue');
 
 global.THREE = THREE;
 
-var BuildingWorker = require('../building/buildingWorker');
 require('../plugins/MTLLoader');
 require('../plugins/OBJMTLLoader');
 require('../plugins/ObjectLoader');
@@ -54,27 +53,9 @@ scene.add(buildingGroup);
 
 models.load(function() {
 
-  var buildingModels = _.chain(models.cache)
-    .pick([
-      'Plate_Wood_01',
-      'Wood_Door_Round_01',
-      'Wood_Window_Round_01',
-      'Wood_Wall_01',
-      'Wood_Wall_Double_Cross_01',
-      'Wood_Wall_Cross_01',
-      'Banner_Short_01',
-      'Shield_Green_01',
-      'Roof_Point_Green_01',
-      'Roof_Straight_Green_01',
-      'Roof_Slant_Green_01',
-      'Roof_Flat_Green_01',
-      'Wood_Pole_01',
-      'Grey_Short_Wall_01'
-    ])
-    .mapObject(function(object) {
-      return object.toJSON();
-    })
-    .value();
+  BuildingWorker.setModels(_.mapObject(models.cache, function(model) {
+    return model.toJSON();
+  }));
 
   var building = {
     width: 3,
@@ -106,13 +87,20 @@ models.load(function() {
 
     generate: function() {
       var options = _.omit(building, 'generate', 'randomSeed');
-
       buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
-      BuildingWorker.generate(options, buildingModels, function(err, json) {
-        var mesh = loader.parse(json);
 
-        buildingGroup.add(mesh);
-      });
+      var func = _.bind(function(cb) {
+        BuildingWorker.generate(options, function(err, json) {
+          var mesh = loader.parse(json);
+
+          buildingGroup.add(mesh);
+
+          cb();
+        });
+      }, this);
+
+      queue.push(func);
+
     } 
   };
 
@@ -145,6 +133,8 @@ models.load(function() {
 
 var render = function () {
   stats.begin();
+
+  queue.start();
 
   controls.update();
   

@@ -1,1991 +1,7 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (Buffer){
-//  Chance.js 0.7.3
-//  http://chancejs.com
-//  (c) 2013 Victor Quinn
-//  Chance may be freely distributed or modified under the MIT license.
-
-(function () {
-
-    // Constants
-    var MAX_INT = 9007199254740992;
-    var MIN_INT = -MAX_INT;
-    var NUMBERS = '0123456789';
-    var CHARS_LOWER = 'abcdefghijklmnopqrstuvwxyz';
-    var CHARS_UPPER = CHARS_LOWER.toUpperCase();
-    var HEX_POOL  = NUMBERS + "abcdef";
-
-    // Cached array helpers
-    var slice = Array.prototype.slice;
-
-    // Constructor
-    function Chance (seed) {
-        if (!(this instanceof Chance)) {
-            return new Chance(seed);
-        }
-
-        // if user has provided a function, use that as the generator
-        if (typeof seed === 'function') {
-            this.random = seed;
-            return this;
-        }
-
-        var seedling;
-
-        if (arguments.length) {
-            // set a starting value of zero so we can add to it
-            this.seed = 0;
-        }
-        // otherwise, leave this.seed blank so that MT will recieve a blank
-
-        for (var i = 0; i < arguments.length; i++) {
-            seedling = 0;
-            if (typeof arguments[i] === 'string') {
-                for (var j = 0; j < arguments[i].length; j++) {
-                    seedling += (arguments[i].length - j) * arguments[i].charCodeAt(j);
-                }
-            } else {
-                seedling = arguments[i];
-            }
-            this.seed += (arguments.length - i) * seedling;
-        }
-
-        // If no generator function was provided, use our MT
-        this.mt = this.mersenne_twister(this.seed);
-        this.random = function () {
-            return this.mt.random(this.seed);
-        };
-
-        return this;
-    }
-
-    Chance.prototype.VERSION = "0.7.3";
-
-    // Random helper functions
-    function initOptions(options, defaults) {
-        options || (options = {});
-
-        if (defaults) {
-            for (var i in defaults) {
-                if (typeof options[i] === 'undefined') {
-                    options[i] = defaults[i];
-                }
-            }
-        }
-
-        return options;
-    }
-
-    function testRange(test, errorMessage) {
-        if (test) {
-            throw new RangeError(errorMessage);
-        }
-    }
-
-    /**
-     * Encode the input string with Base64.
-     */
-    var base64 = function() {
-        throw new Error('No Base64 encoder available.');
-    };
-
-    // Select proper Base64 encoder.
-    (function determineBase64Encoder() {
-        if (typeof btoa === 'function') {
-            base64 = btoa;
-        } else if (typeof Buffer === 'function') {
-            base64 = function(input) {
-                return new Buffer(input).toString('base64');
-            };
-        }
-    })();
-
-    // -- Basics --
-
-    Chance.prototype.bool = function (options) {
-
-        // likelihood of success (true)
-        options = initOptions(options, {likelihood : 50});
-
-        testRange(
-            options.likelihood < 0 || options.likelihood > 100,
-            "Chance: Likelihood accepts values from 0 to 100."
-        );
-
-        return this.random() * 100 < options.likelihood;
-    };
-
-    Chance.prototype.character = function (options) {
-        options = initOptions(options);
-
-        var symbols = "!@#$%^&*()[]",
-            letters, pool;
-
-        testRange(
-            options.alpha && options.symbols,
-            "Chance: Cannot specify both alpha and symbols."
-        );
-
-
-        if (options.casing === 'lower') {
-            letters = CHARS_LOWER;
-        } else if (options.casing === 'upper') {
-            letters = CHARS_UPPER;
-        } else {
-            letters = CHARS_LOWER + CHARS_UPPER;
-        }
-
-        if (options.pool) {
-            pool = options.pool;
-        } else if (options.alpha) {
-            pool = letters;
-        } else if (options.symbols) {
-            pool = symbols;
-        } else {
-            pool = letters + NUMBERS + symbols;
-        }
-
-        return pool.charAt(this.natural({max: (pool.length - 1)}));
-    };
-
-    // Note, wanted to use "float" or "double" but those are both JS reserved words.
-
-    // Note, fixed means N OR LESS digits after the decimal. This because
-    // It could be 14.9000 but in JavaScript, when this is cast as a number,
-    // the trailing zeroes are dropped. Left to the consumer if trailing zeroes are
-    // needed
-    Chance.prototype.floating = function (options) {
-        var num;
-
-        options = initOptions(options, {fixed : 4});
-        var fixed = Math.pow(10, options.fixed);
-
-        testRange(
-            options.fixed && options.precision,
-            "Chance: Cannot specify both fixed and precision."
-        );
-
-        var max = MAX_INT / fixed;
-        var min = -max;
-
-        testRange(
-            options.min && options.fixed && options.min < min,
-            "Chance: Min specified is out of range with fixed. Min should be, at least, " + min
-        );
-        testRange(
-            options.max && options.fixed && options.max > max,
-            "Chance: Max specified is out of range with fixed. Max should be, at most, " + max
-        );
-
-        options = initOptions(options, {min : min, max : max});
-
-        // Todo - Make this work!
-        // options.precision = (typeof options.precision !== "undefined") ? options.precision : false;
-
-        num = this.integer({min: options.min * fixed, max: options.max * fixed});
-        var num_fixed = (num / fixed).toFixed(options.fixed);
-
-        return parseFloat(num_fixed);
-    };
-
-    // NOTE the max and min are INCLUDED in the range. So:
-    //
-    // chance.natural({min: 1, max: 3});
-    //
-    // would return either 1, 2, or 3.
-
-    Chance.prototype.integer = function (options) {
-
-        // 9007199254740992 (2^53) is the max integer number in JavaScript
-        // See: http://vq.io/132sa2j
-        options = initOptions(options, {min: MIN_INT, max: MAX_INT});
-
-        testRange(options.min > options.max, "Chance: Min cannot be greater than Max.");
-
-        return Math.floor(this.random() * (options.max - options.min + 1) + options.min);
-    };
-
-    Chance.prototype.natural = function (options) {
-        options = initOptions(options, {min: 0, max: MAX_INT});
-        return this.integer(options);
-    };
-
-    Chance.prototype.string = function (options) {
-        options = initOptions(options);
-
-        var length = options.length || this.natural({min: 5, max: 20}),
-            pool = options.pool,
-            text = this.n(this.character, length, {pool: pool});
-
-        return text.join("");
-    };
-
-    // -- End Basics --
-
-    // -- Helpers --
-
-    Chance.prototype.capitalize = function (word) {
-        return word.charAt(0).toUpperCase() + word.substr(1);
-    };
-
-    Chance.prototype.mixin = function (obj) {
-        for (var func_name in obj) {
-            Chance.prototype[func_name] = obj[func_name];
-        }
-        return this;
-    };
-
-    // Given a function that generates something random and a number of items to generate,
-    // return an array of items where none repeat.
-    Chance.prototype.unique = function(fn, num, options) {
-        options = initOptions(options, {
-            // Default comparator to check that val is not already in arr.
-            // Should return `false` if item not in array, `true` otherwise
-            comparator: function(arr, val) {
-                return arr.indexOf(val) !== -1;
-            }
-        });
-
-        var arr = [], count = 0, result, MAX_DUPLICATES = num * 50, params = slice.call(arguments, 2);
-
-        while (arr.length < num) {
-            result = fn.apply(this, params);
-            if (!options.comparator(arr, result)) {
-                arr.push(result);
-                // reset count when unique found
-                count = 0;
-            }
-
-            if (++count > MAX_DUPLICATES) {
-                throw new RangeError("Chance: num is likely too large for sample set");
-            }
-        }
-        return arr;
-    };
-
-    /**
-     *  Gives an array of n random terms
-     *  @param fn the function that generates something random
-     *  @param n number of terms to generate
-     *  There can be more parameters after these. All additional parameters are provided to the given function
-     */
-    Chance.prototype.n = function(fn, n) {
-        if (typeof n === 'undefined') {
-            n = 1;
-        }
-        var i = n, arr = [], params = slice.call(arguments, 2);
-
-        // Providing a negative count should result in a noop.
-        i = Math.max( 0, i );
-
-        for (null; i--; null) {
-            arr.push(fn.apply(this, params));
-        }
-
-        return arr;
-    };
-
-    // H/T to SO for this one: http://vq.io/OtUrZ5
-    Chance.prototype.pad = function (number, width, pad) {
-        // Default pad to 0 if none provided
-        pad = pad || '0';
-        // Convert number to a string
-        number = number + '';
-        return number.length >= width ? number : new Array(width - number.length + 1).join(pad) + number;
-    };
-
-    Chance.prototype.pick = function (arr, count) {
-        if (arr.length === 0) {
-            throw new RangeError("Chance: Cannot pick() from an empty array");
-        }
-        if (!count || count === 1) {
-            return arr[this.natural({max: arr.length - 1})];
-        } else {
-            return this.shuffle(arr).slice(0, count);
-        }
-    };
-
-    Chance.prototype.shuffle = function (arr) {
-        var old_array = arr.slice(0),
-            new_array = [],
-            j = 0,
-            length = Number(old_array.length);
-
-        for (var i = 0; i < length; i++) {
-            // Pick a random index from the array
-            j = this.natural({max: old_array.length - 1});
-            // Add it to the new array
-            new_array[i] = old_array[j];
-            // Remove that element from the original array
-            old_array.splice(j, 1);
-        }
-
-        return new_array;
-    };
-
-    // Returns a single item from an array with relative weighting of odds
-    Chance.prototype.weighted = function(arr, weights) {
-        if (arr.length !== weights.length) {
-            throw new RangeError("Chance: length of array and weights must match");
-        }
-
-        // Handle weights that are less or equal to zero.
-        for (var weightIndex = weights.length - 1; weightIndex >= 0; --weightIndex) {
-            // If the weight is less or equal to zero, remove it and the value.
-            if (weights[weightIndex] <= 0) {
-                arr.splice(weightIndex,1);
-                weights.splice(weightIndex,1);
-            }
-        }
-
-        // If any of the weights are less than 1, we want to scale them up to whole
-        //   numbers for the rest of this logic to work
-        if (weights.some(function(weight) { return weight < 1; })) {
-            var min = weights.reduce(function(min, weight) {
-                return (weight < min) ? weight : min;
-            }, weights[0]);
-
-            var scaling_factor = 1 / min;
-
-            weights = weights.map(function(weight) {
-                return weight * scaling_factor;
-            });
-        }
-
-        var sum = weights.reduce(function(total, weight) {
-            return total + weight;
-        }, 0);
-
-        // get an index
-        var selected = this.natural({ min: 1, max: sum });
-
-        var total = 0;
-        var chosen;
-        // Using some() here so we can bail as soon as we get our match
-        weights.some(function(weight, index) {
-            if (selected <= total + weight) {
-                chosen = arr[index];
-                return true;
-            }
-            total += weight;
-            return false;
-        });
-
-        return chosen;
-    };
-
-    // -- End Helpers --
-
-    // -- Text --
-
-    Chance.prototype.paragraph = function (options) {
-        options = initOptions(options);
-
-        var sentences = options.sentences || this.natural({min: 3, max: 7}),
-            sentence_array = this.n(this.sentence, sentences);
-
-        return sentence_array.join(' ');
-    };
-
-    // Could get smarter about this than generating random words and
-    // chaining them together. Such as: http://vq.io/1a5ceOh
-    Chance.prototype.sentence = function (options) {
-        options = initOptions(options);
-
-        var words = options.words || this.natural({min: 12, max: 18}),
-            text, word_array = this.n(this.word, words);
-
-        text = word_array.join(' ');
-
-        // Capitalize first letter of sentence, add period at end
-        text = this.capitalize(text) + '.';
-
-        return text;
-    };
-
-    Chance.prototype.syllable = function (options) {
-        options = initOptions(options);
-
-        var length = options.length || this.natural({min: 2, max: 3}),
-            consonants = 'bcdfghjklmnprstvwz', // consonants except hard to speak ones
-            vowels = 'aeiou', // vowels
-            all = consonants + vowels, // all
-            text = '',
-            chr;
-
-        // I'm sure there's a more elegant way to do this, but this works
-        // decently well.
-        for (var i = 0; i < length; i++) {
-            if (i === 0) {
-                // First character can be anything
-                chr = this.character({pool: all});
-            } else if (consonants.indexOf(chr) === -1) {
-                // Last character was a vowel, now we want a consonant
-                chr = this.character({pool: consonants});
-            } else {
-                // Last character was a consonant, now we want a vowel
-                chr = this.character({pool: vowels});
-            }
-
-            text += chr;
-        }
-
-        return text;
-    };
-
-    Chance.prototype.word = function (options) {
-        options = initOptions(options);
-
-        testRange(
-            options.syllables && options.length,
-            "Chance: Cannot specify both syllables AND length."
-        );
-
-        var syllables = options.syllables || this.natural({min: 1, max: 3}),
-            text = '';
-
-        if (options.length) {
-            // Either bound word by length
-            do {
-                text += this.syllable();
-            } while (text.length < options.length);
-            text = text.substring(0, options.length);
-        } else {
-            // Or by number of syllables
-            for (var i = 0; i < syllables; i++) {
-                text += this.syllable();
-            }
-        }
-        return text;
-    };
-
-    // -- End Text --
-
-    // -- Person --
-
-    Chance.prototype.age = function (options) {
-        options = initOptions(options);
-        var ageRange;
-
-        switch (options.type) {
-            case 'child':
-                ageRange = {min: 1, max: 12};
-                break;
-            case 'teen':
-                ageRange = {min: 13, max: 19};
-                break;
-            case 'adult':
-                ageRange = {min: 18, max: 65};
-                break;
-            case 'senior':
-                ageRange = {min: 65, max: 100};
-                break;
-            case 'all':
-                ageRange = {min: 1, max: 100};
-                break;
-            default:
-                ageRange = {min: 18, max: 65};
-                break;
-        }
-
-        return this.natural(ageRange);
-    };
-
-    Chance.prototype.birthday = function (options) {
-        options = initOptions(options, {
-            year: (new Date().getFullYear() - this.age(options))
-        });
-
-        return this.date(options);
-    };
-
-    // CPF; ID to identify taxpayers in Brazil
-    Chance.prototype.cpf = function () {
-        var n = this.n(this.natural, 9, { max: 9 });
-        var d1 = n[8]*2+n[7]*3+n[6]*4+n[5]*5+n[4]*6+n[3]*7+n[2]*8+n[1]*9+n[0]*10;
-        d1 = 11 - (d1 % 11);
-        if (d1>=10) {
-            d1 = 0;
-        }
-        var d2 = d1*2+n[8]*3+n[7]*4+n[6]*5+n[5]*6+n[4]*7+n[3]*8+n[2]*9+n[1]*10+n[0]*11;
-        d2 = 11 - (d2 % 11);
-        if (d2>=10) {
-            d2 = 0;
-        }
-        return ''+n[0]+n[1]+n[2]+'.'+n[3]+n[4]+n[5]+'.'+n[6]+n[7]+n[8]+'-'+d1+d2;
-    };
-
-    Chance.prototype.first = function (options) {
-        options = initOptions(options, {gender: this.gender()});
-        return this.pick(this.get("firstNames")[options.gender.toLowerCase()]);
-    };
-
-    Chance.prototype.gender = function () {
-        return this.pick(['Male', 'Female']);
-    };
-
-    Chance.prototype.last = function () {
-        return this.pick(this.get("lastNames"));
-    };
-
-    Chance.prototype.name = function (options) {
-        options = initOptions(options);
-
-        var first = this.first(options),
-            last = this.last(),
-            name;
-
-        if (options.middle) {
-            name = first + ' ' + this.first(options) + ' ' + last;
-        } else if (options.middle_initial) {
-            name = first + ' ' + this.character({alpha: true, casing: 'upper'}) + '. ' + last;
-        } else {
-            name = first + ' ' + last;
-        }
-
-        if (options.prefix) {
-            name = this.prefix(options) + ' ' + name;
-        }
-
-        if (options.suffix) {
-            name = name + ' ' + this.suffix(options);
-        }
-
-        return name;
-    };
-
-    // Return the list of available name prefixes based on supplied gender.
-    Chance.prototype.name_prefixes = function (gender) {
-        gender = gender || "all";
-        gender = gender.toLowerCase();
-
-        var prefixes = [
-            { name: 'Doctor', abbreviation: 'Dr.' }
-        ];
-
-        if (gender === "male" || gender === "all") {
-            prefixes.push({ name: 'Mister', abbreviation: 'Mr.' });
-        }
-
-        if (gender === "female" || gender === "all") {
-            prefixes.push({ name: 'Miss', abbreviation: 'Miss' });
-            prefixes.push({ name: 'Misses', abbreviation: 'Mrs.' });
-        }
-
-        return prefixes;
-    };
-
-    // Alias for name_prefix
-    Chance.prototype.prefix = function (options) {
-        return this.name_prefix(options);
-    };
-
-    Chance.prototype.name_prefix = function (options) {
-        options = initOptions(options, { gender: "all" });
-        return options.full ?
-            this.pick(this.name_prefixes(options.gender)).name :
-            this.pick(this.name_prefixes(options.gender)).abbreviation;
-    };
-
-    Chance.prototype.ssn = function (options) {
-        options = initOptions(options, {ssnFour: false, dashes: true});
-        var ssn_pool = "1234567890",
-            ssn,
-            dash = options.dashes ? '-' : '';
-
-        if(!options.ssnFour) {
-            ssn = this.string({pool: ssn_pool, length: 3}) + dash +
-            this.string({pool: ssn_pool, length: 2}) + dash +
-            this.string({pool: ssn_pool, length: 4});
-        } else {
-            ssn = this.string({pool: ssn_pool, length: 4});
-        }
-        return ssn;
-    };
-
-    // Return the list of available name suffixes
-    Chance.prototype.name_suffixes = function () {
-        var suffixes = [
-            { name: 'Doctor of Osteopathic Medicine', abbreviation: 'D.O.' },
-            { name: 'Doctor of Philosophy', abbreviation: 'Ph.D.' },
-            { name: 'Esquire', abbreviation: 'Esq.' },
-            { name: 'Junior', abbreviation: 'Jr.' },
-            { name: 'Juris Doctor', abbreviation: 'J.D.' },
-            { name: 'Master of Arts', abbreviation: 'M.A.' },
-            { name: 'Master of Business Administration', abbreviation: 'M.B.A.' },
-            { name: 'Master of Science', abbreviation: 'M.S.' },
-            { name: 'Medical Doctor', abbreviation: 'M.D.' },
-            { name: 'Senior', abbreviation: 'Sr.' },
-            { name: 'The Third', abbreviation: 'III' },
-            { name: 'The Fourth', abbreviation: 'IV' }
-        ];
-        return suffixes;
-    };
-
-    // Alias for name_suffix
-    Chance.prototype.suffix = function (options) {
-        return this.name_suffix(options);
-    };
-
-    Chance.prototype.name_suffix = function (options) {
-        options = initOptions(options);
-        return options.full ?
-            this.pick(this.name_suffixes()).name :
-            this.pick(this.name_suffixes()).abbreviation;
-    };
-
-    // -- End Person --
-
-    // -- Mobile --
-    // Android GCM Registration ID
-    Chance.prototype.android_id = function () {
-        return "APA91" + this.string({ pool: "0123456789abcefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_", length: 178 });
-    };
-
-    // Apple Push Token
-    Chance.prototype.apple_token = function () {
-        return this.string({ pool: "abcdef1234567890", length: 64 });
-    };
-
-    // Windows Phone 8 ANID2
-    Chance.prototype.wp8_anid2 = function () {
-        return base64( this.hash( { length : 32 } ) );
-    };
-
-    // Windows Phone 7 ANID
-    Chance.prototype.wp7_anid = function () {
-        return 'A=' + this.guid().replace(/-/g, '').toUpperCase() + '&E=' + this.hash({ length:3 }) + '&W=' + this.integer({ min:0, max:9 });
-    };
-
-    // BlackBerry Device PIN
-    Chance.prototype.bb_pin = function () {
-        return this.hash({ length: 8 });
-    };
-
-    // -- End Mobile --
-
-    // -- Web --
-    Chance.prototype.color = function (options) {
-        function gray(value, delimiter) {
-            return [value, value, value].join(delimiter || '');
-        }
-
-        options = initOptions(options, {format: this.pick(['hex', 'shorthex', 'rgb', '0x']), grayscale: false, casing: 'lower'});
-        var isGrayscale = options.grayscale;
-        var colorValue;
-
-        if (options.format === 'hex') {
-            colorValue = '#' + (isGrayscale ? gray(this.hash({length: 2})) : this.hash({length: 6}));
-
-        } else if (options.format === 'shorthex') {
-            colorValue = '#' + (isGrayscale ? gray(this.hash({length: 1})) : this.hash({length: 3}));
-
-        } else if (options.format === 'rgb') {
-            if (isGrayscale) {
-                colorValue = 'rgb(' + gray(this.natural({max: 255}), ',') + ')';
-            } else {
-                colorValue = 'rgb(' + this.natural({max: 255}) + ',' + this.natural({max: 255}) + ',' + this.natural({max: 255}) + ')';
-            }
-        } else if (options.format === '0x') {
-            colorValue = '0x' + (isGrayscale ? gray(this.hash({length: 2})) : this.hash({length: 6}));
-        } else {
-            throw new Error('Invalid format provided. Please provide one of "hex", "shorthex", "rgb" or "0x".');
-        }
-
-        if (options.casing === 'upper' ) {
-            colorValue = colorValue.toUpperCase();
-        }
-
-        return colorValue;
-    };
-
-    Chance.prototype.domain = function (options) {
-        options = initOptions(options);
-        return this.word() + '.' + (options.tld || this.tld());
-    };
-
-    Chance.prototype.email = function (options) {
-        options = initOptions(options);
-        return this.word({length: options.length}) + '@' + (options.domain || this.domain());
-    };
-
-    Chance.prototype.fbid = function () {
-        return parseInt('10000' + this.natural({max: 100000000000}), 10);
-    };
-
-    Chance.prototype.google_analytics = function () {
-        var account = this.pad(this.natural({max: 999999}), 6);
-        var property = this.pad(this.natural({max: 99}), 2);
-
-        return 'UA-' + account + '-' + property;
-    };
-
-    Chance.prototype.hashtag = function () {
-        return '#' + this.word();
-    };
-
-    Chance.prototype.ip = function () {
-        // Todo: This could return some reserved IPs. See http://vq.io/137dgYy
-        // this should probably be updated to account for that rare as it may be
-        return this.natural({max: 255}) + '.' +
-               this.natural({max: 255}) + '.' +
-               this.natural({max: 255}) + '.' +
-               this.natural({max: 255});
-    };
-
-    Chance.prototype.ipv6 = function () {
-        var ip_addr = this.n(this.hash, 8, {length: 4});
-
-        return ip_addr.join(":");
-    };
-
-    Chance.prototype.klout = function () {
-        return this.natural({min: 1, max: 99});
-    };
-
-    Chance.prototype.tlds = function () {
-        return ['com', 'org', 'edu', 'gov', 'co.uk', 'net', 'io'];
-    };
-
-    Chance.prototype.tld = function () {
-        return this.pick(this.tlds());
-    };
-
-    Chance.prototype.twitter = function () {
-        return '@' + this.word();
-    };
-
-    Chance.prototype.url = function (options) {
-        options = initOptions(options, { protocol: "http", domain: this.domain(options), domain_prefix: "", path: this.word(), extensions: []});
-
-        var extension = options.extensions.length > 0 ? "." + this.pick(options.extensions) : "";
-        var domain = options.domain_prefix ? options.domain_prefix + "." + options.domain : options.domain;
-
-        return options.protocol + "://" + domain + "/" + options.path + extension;
-    };
-
-    // -- End Web --
-
-    // -- Location --
-
-    Chance.prototype.address = function (options) {
-        options = initOptions(options);
-        return this.natural({min: 5, max: 2000}) + ' ' + this.street(options);
-    };
-
-    Chance.prototype.altitude = function (options) {
-        options = initOptions(options, {fixed : 5, max: 8848});
-        return this.floating({min: 0, max: options.max, fixed: options.fixed});
-    };
-
-    Chance.prototype.areacode = function (options) {
-        options = initOptions(options, {parens : true});
-        // Don't want area codes to start with 1, or have a 9 as the second digit
-        var areacode = this.natural({min: 2, max: 9}).toString() +
-                this.natural({min: 0, max: 8}).toString() +
-                this.natural({min: 0, max: 9}).toString();
-
-        return options.parens ? '(' + areacode + ')' : areacode;
-    };
-
-    Chance.prototype.city = function () {
-        return this.capitalize(this.word({syllables: 3}));
-    };
-
-    Chance.prototype.coordinates = function (options) {
-        options = initOptions(options);
-        return this.latitude(options) + ', ' + this.longitude(options);
-    };
-
-    Chance.prototype.countries = function () {
-        return this.get("countries");
-    };
-
-    Chance.prototype.country = function (options) {
-        options = initOptions(options);
-        var country = this.pick(this.countries());
-        return options.full ? country.name : country.abbreviation;
-    };
-
-    Chance.prototype.depth = function (options) {
-        options = initOptions(options, {fixed: 5, min: -2550});
-        return this.floating({min: options.min, max: 0, fixed: options.fixed});
-    };
-
-    Chance.prototype.geohash = function (options) {
-        options = initOptions(options, { length: 7 });
-        return this.string({ length: options.length, pool: '0123456789bcdefghjkmnpqrstuvwxyz' });
-    };
-
-    Chance.prototype.geojson = function (options) {
-        options = initOptions(options);
-        return this.latitude(options) + ', ' + this.longitude(options) + ', ' + this.altitude(options);
-    };
-
-    Chance.prototype.latitude = function (options) {
-        options = initOptions(options, {fixed: 5, min: -90, max: 90});
-        return this.floating({min: options.min, max: options.max, fixed: options.fixed});
-    };
-
-    Chance.prototype.longitude = function (options) {
-        options = initOptions(options, {fixed: 5, min: -180, max: 180});
-        return this.floating({min: options.min, max: options.max, fixed: options.fixed});
-    };
-
-    Chance.prototype.phone = function (options) {
-        var self = this,
-            numPick,
-            ukNum = function (parts) {
-                var section = [];
-                //fills the section part of the phone number with random numbers.
-                parts.sections.forEach(function(n) {
-                    section.push(self.string({ pool: '0123456789', length: n}));
-                });
-                return parts.area + section.join(' ');
-            };
-        options = initOptions(options, {
-            formatted: true,
-            country: 'us',
-            mobile: false
-        });
-        if (!options.formatted) {
-            options.parens = false;
-        }
-        var phone;
-        switch (options.country) {
-            case 'fr':
-                if (!options.mobile) {
-                    numPick = this.pick([
-                        // Valid zone and département codes.
-                        '01' + this.pick(['30', '34', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '53', '55', '56', '58', '60', '64', '69', '70', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83']) + self.string({ pool: '0123456789', length: 6}),
-                        '02' + this.pick(['14', '18', '22', '23', '28', '29', '30', '31', '32', '33', '34', '35', '36', '37', '38', '40', '41', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '56', '57', '61', '62', '69', '72', '76', '77', '78', '85', '90', '96', '97', '98', '99']) + self.string({ pool: '0123456789', length: 6}),
-                        '03' + this.pick(['10', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '39', '44', '45', '51', '52', '54', '55', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90']) + self.string({ pool: '0123456789', length: 6}),
-                        '04' + this.pick(['11', '13', '15', '20', '22', '26', '27', '30', '32', '34', '37', '42', '43', '44', '50', '56', '57', '63', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '88', '89', '90', '91', '92', '93', '94', '95', '97', '98']) + self.string({ pool: '0123456789', length: 6}),
-                        '05' + this.pick(['08', '16', '17', '19', '24', '31', '32', '33', '34', '35', '40', '45', '46', '47', '49', '53', '55', '56', '57', '58', '59', '61', '62', '63', '64', '65', '67', '79', '81', '82', '86', '87', '90', '94']) + self.string({ pool: '0123456789', length: 6}),
-                        '09' + self.string({ pool: '0123456789', length: 8}),
-                    ]);
-                    phone = options.formatted ? numPick.match(/../g).join(' ') : numPick;
-                } else {
-                    numPick = this.pick(['06', '07']) + self.string({ pool: '0123456789', length: 8});
-                    phone = options.formatted ? numPick.match(/../g).join(' ') : numPick;
-                }
-                break;
-            case 'uk':
-                if (!options.mobile) {
-                    numPick = this.pick([
-                        //valid area codes of major cities/counties followed by random numbers in required format.
-                        { area: '01' + this.character({ pool: '234569' }) + '1 ', sections: [3,4] },
-                        { area: '020 ' + this.character({ pool: '378' }), sections: [3,4] },
-                        { area: '023 ' + this.character({ pool: '89' }), sections: [3,4] },
-                        { area: '024 7', sections: [3,4] },
-                        { area: '028 ' + this.pick(['25','28','37','71','82','90','92','95']), sections: [2,4] },
-                        { area: '012' + this.pick(['04','08','54','76','97','98']) + ' ', sections: [5] },
-                        { area: '013' + this.pick(['63','64','84','86']) + ' ', sections: [5] },
-                        { area: '014' + this.pick(['04','20','60','61','80','88']) + ' ', sections: [5] },
-                        { area: '015' + this.pick(['24','27','62','66']) + ' ', sections: [5] },
-                        { area: '016' + this.pick(['06','29','35','47','59','95']) + ' ', sections: [5] },
-                        { area: '017' + this.pick(['26','44','50','68']) + ' ', sections: [5] },
-                        { area: '018' + this.pick(['27','37','84','97']) + ' ', sections: [5] },
-                        { area: '019' + this.pick(['00','05','35','46','49','63','95']) + ' ', sections: [5] }
-                    ]);
-                    phone = options.formatted ? ukNum(numPick) : ukNum(numPick).replace(' ', '', 'g');
-                } else {
-                    numPick = this.pick([
-                        { area: '07' + this.pick(['4','5','7','8','9']), sections: [2,6] },
-                        { area: '07624 ', sections: [6] }
-                    ]);
-                    phone = options.formatted ? ukNum(numPick) : ukNum(numPick).replace(' ', '');
-                }
-                break;
-            case 'us':
-                var areacode = this.areacode(options).toString();
-                var exchange = this.natural({ min: 2, max: 9 }).toString() +
-                    this.natural({ min: 0, max: 9 }).toString() +
-                    this.natural({ min: 0, max: 9 }).toString();
-                var subscriber = this.natural({ min: 1000, max: 9999 }).toString(); // this could be random [0-9]{4}
-                phone = options.formatted ? areacode + ' ' + exchange + '-' + subscriber : areacode + exchange + subscriber;
-        }
-        return phone;
-    };
-
-    Chance.prototype.postal = function () {
-        // Postal District
-        var pd = this.character({pool: "XVTSRPNKLMHJGECBA"});
-        // Forward Sortation Area (FSA)
-        var fsa = pd + this.natural({max: 9}) + this.character({alpha: true, casing: "upper"});
-        // Local Delivery Unut (LDU)
-        var ldu = this.natural({max: 9}) + this.character({alpha: true, casing: "upper"}) + this.natural({max: 9});
-
-        return fsa + " " + ldu;
-    };
-
-    Chance.prototype.provinces = function () {
-        return this.get("provinces");
-    };
-
-    Chance.prototype.province = function (options) {
-        return (options && options.full) ?
-            this.pick(this.provinces()).name :
-            this.pick(this.provinces()).abbreviation;
-    };
-
-    Chance.prototype.state = function (options) {
-        return (options && options.full) ?
-            this.pick(this.states(options)).name :
-            this.pick(this.states(options)).abbreviation;
-    };
-
-    Chance.prototype.states = function (options) {
-        options = initOptions(options);
-
-        var states,
-            us_states_and_dc = this.get("us_states_and_dc"),
-            territories = this.get("territories"),
-            armed_forces = this.get("armed_forces");
-
-        states = us_states_and_dc;
-
-        if (options.territories) {
-            states = states.concat(territories);
-        }
-        if (options.armed_forces) {
-            states = states.concat(armed_forces);
-        }
-
-        return states;
-    };
-
-    Chance.prototype.street = function (options) {
-        options = initOptions(options);
-
-        var street = this.word({syllables: 2});
-        street = this.capitalize(street);
-        street += ' ';
-        street += options.short_suffix ?
-            this.street_suffix().abbreviation :
-            this.street_suffix().name;
-        return street;
-    };
-
-    Chance.prototype.street_suffix = function () {
-        return this.pick(this.street_suffixes());
-    };
-
-    Chance.prototype.street_suffixes = function () {
-        // These are the most common suffixes.
-        return this.get("street_suffixes");
-    };
-
-    // Note: only returning US zip codes, internationalization will be a whole
-    // other beast to tackle at some point.
-    Chance.prototype.zip = function (options) {
-        var zip = this.n(this.natural, 5, {max: 9});
-
-        if (options && options.plusfour === true) {
-            zip.push('-');
-            zip = zip.concat(this.n(this.natural, 4, {max: 9}));
-        }
-
-        return zip.join("");
-    };
-
-    // -- End Location --
-
-    // -- Time
-
-    Chance.prototype.ampm = function () {
-        return this.bool() ? 'am' : 'pm';
-    };
-
-    Chance.prototype.date = function (options) {
-        var date_string, date;
-
-        // If interval is specified we ignore preset
-        if(options && (options.min || options.max)) {
-            options = initOptions(options, {
-                american: true,
-                string: false
-            });
-            var min = typeof options.min !== "undefined" ? options.min.getTime() : 1;
-            // 100,000,000 days measured relative to midnight at the beginning of 01 January, 1970 UTC. http://es5.github.io/#x15.9.1.1
-            var max = typeof options.max !== "undefined" ? options.max.getTime() : 8640000000000000;
-
-            date = new Date(this.natural({min: min, max: max}));
-        } else {
-            var m = this.month({raw: true});
-
-            options = initOptions(options, {
-                year: parseInt(this.year(), 10),
-                // Necessary to subtract 1 because Date() 0-indexes month but not day or year
-                // for some reason.
-                month: m.numeric - 1,
-                day: this.natural({min: 1, max: m.days}),
-                hour: this.hour(),
-                minute: this.minute(),
-                second: this.second(),
-                millisecond: this.millisecond(),
-                american: true,
-                string: false
-            });
-
-            date = new Date(options.year, options.month, options.day, options.hour, options.minute, options.second, options.millisecond);
-        }
-
-        if (options.american) {
-            // Adding 1 to the month is necessary because Date() 0-indexes
-            // months but not day for some odd reason.
-            date_string = (date.getMonth() + 1) + '/' + date.getDate() + '/' + date.getFullYear();
-        } else {
-            date_string = date.getDate() + '/' + (date.getMonth() + 1) + '/' + date.getFullYear();
-        }
-
-        return options.string ? date_string : date;
-    };
-
-    Chance.prototype.hammertime = function (options) {
-        return this.date(options).getTime();
-    };
-
-    Chance.prototype.hour = function (options) {
-        options = initOptions(options, {min: 1, max: options && options.twentyfour ? 24 : 12});
-
-        testRange(options.min < 1, "Chance: Min cannot be less than 1.");
-        testRange(options.twentyfour && options.max > 24, "Chance: Max cannot be greater than 24 for twentyfour option.");
-        testRange(!options.twentyfour && options.max > 12, "Chance: Max cannot be greater than 12.");
-        testRange(options.min > options.max, "Chance: Min cannot be greater than Max.");
-
-        return this.natural({min: options.min, max: options.max});
-    };
-
-    Chance.prototype.millisecond = function () {
-        return this.natural({max: 999});
-    };
-
-    Chance.prototype.minute = Chance.prototype.second = function (options) {
-        options = initOptions(options, {min: 0, max: 59});
-
-        testRange(options.min < 0, "Chance: Min cannot be less than 0.");
-        testRange(options.max > 59, "Chance: Max cannot be greater than 59.");
-        testRange(options.min > options.max, "Chance: Min cannot be greater than Max.");
-
-        return this.natural({min: options.min, max: options.max});
-    };
-
-    Chance.prototype.month = function (options) {
-        options = initOptions(options, {min: 1, max: 12});
-
-        testRange(options.min < 1, "Chance: Min cannot be less than 1.");
-        testRange(options.max > 12, "Chance: Max cannot be greater than 12.");
-        testRange(options.min > options.max, "Chance: Min cannot be greater than Max.");
-
-        var month = this.pick(this.months().slice(options.min - 1, options.max));
-        return options.raw ? month : month.name;
-    };
-
-    Chance.prototype.months = function () {
-        return this.get("months");
-    };
-
-    Chance.prototype.second = function () {
-        return this.natural({max: 59});
-    };
-
-    Chance.prototype.timestamp = function () {
-        return this.natural({min: 1, max: parseInt(new Date().getTime() / 1000, 10)});
-    };
-
-    Chance.prototype.year = function (options) {
-        // Default to current year as min if none specified
-        options = initOptions(options, {min: new Date().getFullYear()});
-
-        // Default to one century after current year as max if none specified
-        options.max = (typeof options.max !== "undefined") ? options.max : options.min + 100;
-
-        return this.natural(options).toString();
-    };
-
-    // -- End Time
-
-    // -- Finance --
-
-    Chance.prototype.cc = function (options) {
-        options = initOptions(options);
-
-        var type, number, to_generate;
-
-        type = (options.type) ?
-                    this.cc_type({ name: options.type, raw: true }) :
-                    this.cc_type({ raw: true });
-
-        number = type.prefix.split("");
-        to_generate = type.length - type.prefix.length - 1;
-
-        // Generates n - 1 digits
-        number = number.concat(this.n(this.integer, to_generate, {min: 0, max: 9}));
-
-        // Generates the last digit according to Luhn algorithm
-        number.push(this.luhn_calculate(number.join("")));
-
-        return number.join("");
-    };
-
-    Chance.prototype.cc_types = function () {
-        // http://en.wikipedia.org/wiki/Bank_card_number#Issuer_identification_number_.28IIN.29
-        return this.get("cc_types");
-    };
-
-    Chance.prototype.cc_type = function (options) {
-        options = initOptions(options);
-        var types = this.cc_types(),
-            type = null;
-
-        if (options.name) {
-            for (var i = 0; i < types.length; i++) {
-                // Accept either name or short_name to specify card type
-                if (types[i].name === options.name || types[i].short_name === options.name) {
-                    type = types[i];
-                    break;
-                }
-            }
-            if (type === null) {
-                throw new Error("Credit card type '" + options.name + "'' is not supported");
-            }
-        } else {
-            type = this.pick(types);
-        }
-
-        return options.raw ? type : type.name;
-    };
-
-    //return all world currency by ISO 4217
-    Chance.prototype.currency_types = function () {
-        return this.get("currency_types");
-    };
-
-    //return random world currency by ISO 4217
-    Chance.prototype.currency = function () {
-        return this.pick(this.currency_types());
-    };
-
-    //Return random correct currency exchange pair (e.g. EUR/USD) or array of currency code
-    Chance.prototype.currency_pair = function (returnAsString) {
-        var currencies = this.unique(this.currency, 2, {
-            comparator: function(arr, val) {
-
-                return arr.reduce(function(acc, item) {
-                    // If a match has been found, short circuit check and just return
-                    return acc || (item.code === val.code);
-                }, false);
-            }
-        });
-
-        if (returnAsString) {
-            return  currencies[0] + '/' + currencies[1];
-        } else {
-            return currencies;
-        }
-    };
-
-    Chance.prototype.dollar = function (options) {
-        // By default, a somewhat more sane max for dollar than all available numbers
-        options = initOptions(options, {max : 10000, min : 0});
-
-        var dollar = this.floating({min: options.min, max: options.max, fixed: 2}).toString(),
-            cents = dollar.split('.')[1];
-
-        if (cents === undefined) {
-            dollar += '.00';
-        } else if (cents.length < 2) {
-            dollar = dollar + '0';
-        }
-
-        if (dollar < 0) {
-            return '-$' + dollar.replace('-', '');
-        } else {
-            return '$' + dollar;
-        }
-    };
-
-    Chance.prototype.exp = function (options) {
-        options = initOptions(options);
-        var exp = {};
-
-        exp.year = this.exp_year();
-
-        // If the year is this year, need to ensure month is greater than the
-        // current month or this expiration will not be valid
-        if (exp.year === (new Date().getFullYear())) {
-            exp.month = this.exp_month({future: true});
-        } else {
-            exp.month = this.exp_month();
-        }
-
-        return options.raw ? exp : exp.month + '/' + exp.year;
-    };
-
-    Chance.prototype.exp_month = function (options) {
-        options = initOptions(options);
-        var month, month_int,
-            curMonth = new Date().getMonth();
-
-        if (options.future) {
-            do {
-                month = this.month({raw: true}).numeric;
-                month_int = parseInt(month, 10);
-            } while (month_int < curMonth);
-        } else {
-            month = this.month({raw: true}).numeric;
-        }
-
-        return month;
-    };
-
-    Chance.prototype.exp_year = function () {
-        return this.year({max: new Date().getFullYear() + 10});
-    };
-
-    // -- End Finance
-
-    // -- Miscellaneous --
-
-    // Dice - For all the board game geeks out there, myself included ;)
-    function diceFn (range) {
-        return function () {
-            return this.natural(range);
-        };
-    }
-    Chance.prototype.d4 = diceFn({min: 1, max: 4});
-    Chance.prototype.d6 = diceFn({min: 1, max: 6});
-    Chance.prototype.d8 = diceFn({min: 1, max: 8});
-    Chance.prototype.d10 = diceFn({min: 1, max: 10});
-    Chance.prototype.d12 = diceFn({min: 1, max: 12});
-    Chance.prototype.d20 = diceFn({min: 1, max: 20});
-    Chance.prototype.d30 = diceFn({min: 1, max: 30});
-    Chance.prototype.d100 = diceFn({min: 1, max: 100});
-
-    Chance.prototype.rpg = function (thrown, options) {
-        options = initOptions(options);
-        if (thrown === null) {
-            throw new Error("A type of die roll must be included");
-        } else {
-            var bits = thrown.toLowerCase().split("d"),
-                rolls = [];
-
-            if (bits.length !== 2 || !parseInt(bits[0], 10) || !parseInt(bits[1], 10)) {
-                throw new Error("Invalid format provided. Please provide #d# where the first # is the number of dice to roll, the second # is the max of each die");
-            }
-            for (var i = bits[0]; i > 0; i--) {
-                rolls[i - 1] = this.natural({min: 1, max: bits[1]});
-            }
-            return (typeof options.sum !== 'undefined' && options.sum) ? rolls.reduce(function (p, c) { return p + c; }) : rolls;
-        }
-    };
-
-    // Guid
-    Chance.prototype.guid = function (options) {
-        options = initOptions(options, { version: 5 });
-
-        var guid_pool = "abcdef1234567890",
-            variant_pool = "ab89",
-            guid = this.string({ pool: guid_pool, length: 8 }) + '-' +
-                   this.string({ pool: guid_pool, length: 4 }) + '-' +
-                   // The Version
-                   options.version +
-                   this.string({ pool: guid_pool, length: 3 }) + '-' +
-                   // The Variant
-                   this.string({ pool: variant_pool, length: 1 }) +
-                   this.string({ pool: guid_pool, length: 3 }) + '-' +
-                   this.string({ pool: guid_pool, length: 12 });
-        return guid;
-    };
-
-    // Hash
-    Chance.prototype.hash = function (options) {
-        options = initOptions(options, {length : 40, casing: 'lower'});
-        var pool = options.casing === 'upper' ? HEX_POOL.toUpperCase() : HEX_POOL;
-        return this.string({pool: pool, length: options.length});
-    };
-
-    Chance.prototype.luhn_check = function (num) {
-        var str = num.toString();
-        var checkDigit = +str.substring(str.length - 1);
-        return checkDigit === this.luhn_calculate(+str.substring(0, str.length - 1));
-    };
-
-    Chance.prototype.luhn_calculate = function (num) {
-        var digits = num.toString().split("").reverse();
-        var sum = 0;
-        var digit;
-
-        for (var i = 0, l = digits.length; l > i; ++i) {
-            digit = +digits[i];
-            if (i % 2 === 0) {
-                digit *= 2;
-                if (digit > 9) {
-                    digit -= 9;
-                }
-            }
-            sum += digit;
-        }
-        return (sum * 9) % 10;
-    };
-
-
-    var data = {
-
-        firstNames: {
-            "male": ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Charles", "Thomas", "Christopher", "Daniel", "Matthew", "George", "Donald", "Anthony", "Paul", "Mark", "Edward", "Steven", "Kenneth", "Andrew", "Brian", "Joshua", "Kevin", "Ronald", "Timothy", "Jason", "Jeffrey", "Frank", "Gary", "Ryan", "Nicholas", "Eric", "Stephen", "Jacob", "Larry", "Jonathan", "Scott", "Raymond", "Justin", "Brandon", "Gregory", "Samuel", "Benjamin", "Patrick", "Jack", "Henry", "Walter", "Dennis", "Jerry", "Alexander", "Peter", "Tyler", "Douglas", "Harold", "Aaron", "Jose", "Adam", "Arthur", "Zachary", "Carl", "Nathan", "Albert", "Kyle", "Lawrence", "Joe", "Willie", "Gerald", "Roger", "Keith", "Jeremy", "Terry", "Harry", "Ralph", "Sean", "Jesse", "Roy", "Louis", "Billy", "Austin", "Bruce", "Eugene", "Christian", "Bryan", "Wayne", "Russell", "Howard", "Fred", "Ethan", "Jordan", "Philip", "Alan", "Juan", "Randy", "Vincent", "Bobby", "Dylan", "Johnny", "Phillip", "Victor", "Clarence", "Ernest", "Martin", "Craig", "Stanley", "Shawn", "Travis", "Bradley", "Leonard", "Earl", "Gabriel", "Jimmy", "Francis", "Todd", "Noah", "Danny", "Dale", "Cody", "Carlos", "Allen", "Frederick", "Logan", "Curtis", "Alex", "Joel", "Luis", "Norman", "Marvin", "Glenn", "Tony", "Nathaniel", "Rodney", "Melvin", "Alfred", "Steve", "Cameron", "Chad", "Edwin", "Caleb", "Evan", "Antonio", "Lee", "Herbert", "Jeffery", "Isaac", "Derek", "Ricky", "Marcus", "Theodore", "Elijah", "Luke", "Jesus", "Eddie", "Troy", "Mike", "Dustin", "Ray", "Adrian", "Bernard", "Leroy", "Angel", "Randall", "Wesley", "Ian", "Jared", "Mason", "Hunter", "Calvin", "Oscar", "Clifford", "Jay", "Shane", "Ronnie", "Barry", "Lucas", "Corey", "Manuel", "Leo", "Tommy", "Warren", "Jackson", "Isaiah", "Connor", "Don", "Dean", "Jon", "Julian", "Miguel", "Bill", "Lloyd", "Charlie", "Mitchell", "Leon", "Jerome", "Darrell", "Jeremiah", "Alvin", "Brett", "Seth", "Floyd", "Jim", "Blake", "Micheal", "Gordon", "Trevor", "Lewis", "Erik", "Edgar", "Vernon", "Devin", "Gavin", "Jayden", "Chris", "Clyde", "Tom", "Derrick", "Mario", "Brent", "Marc", "Herman", "Chase", "Dominic", "Ricardo", "Franklin", "Maurice", "Max", "Aiden", "Owen", "Lester", "Gilbert", "Elmer", "Gene", "Francisco", "Glen", "Cory", "Garrett", "Clayton", "Sam", "Jorge", "Chester", "Alejandro", "Jeff", "Harvey", "Milton", "Cole", "Ivan", "Andre", "Duane", "Landon"],
-            "female": ["Mary", "Emma", "Elizabeth", "Minnie", "Margaret", "Ida", "Alice", "Bertha", "Sarah", "Annie", "Clara", "Ella", "Florence", "Cora", "Martha", "Laura", "Nellie", "Grace", "Carrie", "Maude", "Mabel", "Bessie", "Jennie", "Gertrude", "Julia", "Hattie", "Edith", "Mattie", "Rose", "Catherine", "Lillian", "Ada", "Lillie", "Helen", "Jessie", "Louise", "Ethel", "Lula", "Myrtle", "Eva", "Frances", "Lena", "Lucy", "Edna", "Maggie", "Pearl", "Daisy", "Fannie", "Josephine", "Dora", "Rosa", "Katherine", "Agnes", "Marie", "Nora", "May", "Mamie", "Blanche", "Stella", "Ellen", "Nancy", "Effie", "Sallie", "Nettie", "Della", "Lizzie", "Flora", "Susie", "Maud", "Mae", "Etta", "Harriet", "Sadie", "Caroline", "Katie", "Lydia", "Elsie", "Kate", "Susan", "Mollie", "Alma", "Addie", "Georgia", "Eliza", "Lulu", "Nannie", "Lottie", "Amanda", "Belle", "Charlotte", "Rebecca", "Ruth", "Viola", "Olive", "Amelia", "Hannah", "Jane", "Virginia", "Emily", "Matilda", "Irene", "Kathryn", "Esther", "Willie", "Henrietta", "Ollie", "Amy", "Rachel", "Sara", "Estella", "Theresa", "Augusta", "Ora", "Pauline", "Josie", "Lola", "Sophia", "Leona", "Anne", "Mildred", "Ann", "Beulah", "Callie", "Lou", "Delia", "Eleanor", "Barbara", "Iva", "Louisa", "Maria", "Mayme", "Evelyn", "Estelle", "Nina", "Betty", "Marion", "Bettie", "Dorothy", "Luella", "Inez", "Lela", "Rosie", "Allie", "Millie", "Janie", "Cornelia", "Victoria", "Ruby", "Winifred", "Alta", "Celia", "Christine", "Beatrice", "Birdie", "Harriett", "Mable", "Myra", "Sophie", "Tillie", "Isabel", "Sylvia", "Carolyn", "Isabelle", "Leila", "Sally", "Ina", "Essie", "Bertie", "Nell", "Alberta", "Katharine", "Lora", "Rena", "Mina", "Rhoda", "Mathilda", "Abbie", "Eula", "Dollie", "Hettie", "Eunice", "Fanny", "Ola", "Lenora", "Adelaide", "Christina", "Lelia", "Nelle", "Sue", "Johanna", "Lilly", "Lucinda", "Minerva", "Lettie", "Roxie", "Cynthia", "Helena", "Hilda", "Hulda", "Bernice", "Genevieve", "Jean", "Cordelia", "Marian", "Francis", "Jeanette", "Adeline", "Gussie", "Leah", "Lois", "Lura", "Mittie", "Hallie", "Isabella", "Olga", "Phoebe", "Teresa", "Hester", "Lida", "Lina", "Winnie", "Claudia", "Marguerite", "Vera", "Cecelia", "Bess", "Emilie", "John", "Rosetta", "Verna", "Myrtie", "Cecilia", "Elva", "Olivia", "Ophelia", "Georgie", "Elnora", "Violet", "Adele", "Lily", "Linnie", "Loretta", "Madge", "Polly", "Virgie", "Eugenia", "Lucile", "Lucille", "Mabelle", "Rosalie"]
-        },
-
-        lastNames: ['Smith', 'Johnson', 'Williams', 'Jones', 'Brown', 'Davis', 'Miller', 'Wilson', 'Moore', 'Taylor', 'Anderson', 'Thomas', 'Jackson', 'White', 'Harris', 'Martin', 'Thompson', 'Garcia', 'Martinez', 'Robinson', 'Clark', 'Rodriguez', 'Lewis', 'Lee', 'Walker', 'Hall', 'Allen', 'Young', 'Hernandez', 'King', 'Wright', 'Lopez', 'Hill', 'Scott', 'Green', 'Adams', 'Baker', 'Gonzalez', 'Nelson', 'Carter', 'Mitchell', 'Perez', 'Roberts', 'Turner', 'Phillips', 'Campbell', 'Parker', 'Evans', 'Edwards', 'Collins', 'Stewart', 'Sanchez', 'Morris', 'Rogers', 'Reed', 'Cook', 'Morgan', 'Bell', 'Murphy', 'Bailey', 'Rivera', 'Cooper', 'Richardson', 'Cox', 'Howard', 'Ward', 'Torres', 'Peterson', 'Gray', 'Ramirez', 'James', 'Watson', 'Brooks', 'Kelly', 'Sanders', 'Price', 'Bennett', 'Wood', 'Barnes', 'Ross', 'Henderson', 'Coleman', 'Jenkins', 'Perry', 'Powell', 'Long', 'Patterson', 'Hughes', 'Flores', 'Washington', 'Butler', 'Simmons', 'Foster', 'Gonzales', 'Bryant', 'Alexander', 'Russell', 'Griffin', 'Diaz', 'Hayes', 'Myers', 'Ford', 'Hamilton', 'Graham', 'Sullivan', 'Wallace', 'Woods', 'Cole', 'West', 'Jordan', 'Owens', 'Reynolds', 'Fisher', 'Ellis', 'Harrison', 'Gibson', 'McDonald', 'Cruz', 'Marshall', 'Ortiz', 'Gomez', 'Murray', 'Freeman', 'Wells', 'Webb', 'Simpson', 'Stevens', 'Tucker', 'Porter', 'Hunter', 'Hicks', 'Crawford', 'Henry', 'Boyd', 'Mason', 'Morales', 'Kennedy', 'Warren', 'Dixon', 'Ramos', 'Reyes', 'Burns', 'Gordon', 'Shaw', 'Holmes', 'Rice', 'Robertson', 'Hunt', 'Black', 'Daniels', 'Palmer', 'Mills', 'Nichols', 'Grant', 'Knight', 'Ferguson', 'Rose', 'Stone', 'Hawkins', 'Dunn', 'Perkins', 'Hudson', 'Spencer', 'Gardner', 'Stephens', 'Payne', 'Pierce', 'Berry', 'Matthews', 'Arnold', 'Wagner', 'Willis', 'Ray', 'Watkins', 'Olson', 'Carroll', 'Duncan', 'Snyder', 'Hart', 'Cunningham', 'Bradley', 'Lane', 'Andrews', 'Ruiz', 'Harper', 'Fox', 'Riley', 'Armstrong', 'Carpenter', 'Weaver', 'Greene', 'Lawrence', 'Elliott', 'Chavez', 'Sims', 'Austin', 'Peters', 'Kelley', 'Franklin', 'Lawson', 'Fields', 'Gutierrez', 'Ryan', 'Schmidt', 'Carr', 'Vasquez', 'Castillo', 'Wheeler', 'Chapman', 'Oliver', 'Montgomery', 'Richards', 'Williamson', 'Johnston', 'Banks', 'Meyer', 'Bishop', 'McCoy', 'Howell', 'Alvarez', 'Morrison', 'Hansen', 'Fernandez', 'Garza', 'Harvey', 'Little', 'Burton', 'Stanley', 'Nguyen', 'George', 'Jacobs', 'Reid', 'Kim', 'Fuller', 'Lynch', 'Dean', 'Gilbert', 'Garrett', 'Romero', 'Welch', 'Larson', 'Frazier', 'Burke', 'Hanson', 'Day', 'Mendoza', 'Moreno', 'Bowman', 'Medina', 'Fowler', 'Brewer', 'Hoffman', 'Carlson', 'Silva', 'Pearson', 'Holland', 'Douglas', 'Fleming', 'Jensen', 'Vargas', 'Byrd', 'Davidson', 'Hopkins', 'May', 'Terry', 'Herrera', 'Wade', 'Soto', 'Walters', 'Curtis', 'Neal', 'Caldwell', 'Lowe', 'Jennings', 'Barnett', 'Graves', 'Jimenez', 'Horton', 'Shelton', 'Barrett', 'Obrien', 'Castro', 'Sutton', 'Gregory', 'McKinney', 'Lucas', 'Miles', 'Craig', 'Rodriquez', 'Chambers', 'Holt', 'Lambert', 'Fletcher', 'Watts', 'Bates', 'Hale', 'Rhodes', 'Pena', 'Beck', 'Newman', 'Haynes', 'McDaniel', 'Mendez', 'Bush', 'Vaughn', 'Parks', 'Dawson', 'Santiago', 'Norris', 'Hardy', 'Love', 'Steele', 'Curry', 'Powers', 'Schultz', 'Barker', 'Guzman', 'Page', 'Munoz', 'Ball', 'Keller', 'Chandler', 'Weber', 'Leonard', 'Walsh', 'Lyons', 'Ramsey', 'Wolfe', 'Schneider', 'Mullins', 'Benson', 'Sharp', 'Bowen', 'Daniel', 'Barber', 'Cummings', 'Hines', 'Baldwin', 'Griffith', 'Valdez', 'Hubbard', 'Salazar', 'Reeves', 'Warner', 'Stevenson', 'Burgess', 'Santos', 'Tate', 'Cross', 'Garner', 'Mann', 'Mack', 'Moss', 'Thornton', 'Dennis', 'McGee', 'Farmer', 'Delgado', 'Aguilar', 'Vega', 'Glover', 'Manning', 'Cohen', 'Harmon', 'Rodgers', 'Robbins', 'Newton', 'Todd', 'Blair', 'Higgins', 'Ingram', 'Reese', 'Cannon', 'Strickland', 'Townsend', 'Potter', 'Goodwin', 'Walton', 'Rowe', 'Hampton', 'Ortega', 'Patton', 'Swanson', 'Joseph', 'Francis', 'Goodman', 'Maldonado', 'Yates', 'Becker', 'Erickson', 'Hodges', 'Rios', 'Conner', 'Adkins', 'Webster', 'Norman', 'Malone', 'Hammond', 'Flowers', 'Cobb', 'Moody', 'Quinn', 'Blake', 'Maxwell', 'Pope', 'Floyd', 'Osborne', 'Paul', 'McCarthy', 'Guerrero', 'Lindsey', 'Estrada', 'Sandoval', 'Gibbs', 'Tyler', 'Gross', 'Fitzgerald', 'Stokes', 'Doyle', 'Sherman', 'Saunders', 'Wise', 'Colon', 'Gill', 'Alvarado', 'Greer', 'Padilla', 'Simon', 'Waters', 'Nunez', 'Ballard', 'Schwartz', 'McBride', 'Houston', 'Christensen', 'Klein', 'Pratt', 'Briggs', 'Parsons', 'McLaughlin', 'Zimmerman', 'French', 'Buchanan', 'Moran', 'Copeland', 'Roy', 'Pittman', 'Brady', 'McCormick', 'Holloway', 'Brock', 'Poole', 'Frank', 'Logan', 'Owen', 'Bass', 'Marsh', 'Drake', 'Wong', 'Jefferson', 'Park', 'Morton', 'Abbott', 'Sparks', 'Patrick', 'Norton', 'Huff', 'Clayton', 'Massey', 'Lloyd', 'Figueroa', 'Carson', 'Bowers', 'Roberson', 'Barton', 'Tran', 'Lamb', 'Harrington', 'Casey', 'Boone', 'Cortez', 'Clarke', 'Mathis', 'Singleton', 'Wilkins', 'Cain', 'Bryan', 'Underwood', 'Hogan', 'McKenzie', 'Collier', 'Luna', 'Phelps', 'McGuire', 'Allison', 'Bridges', 'Wilkerson', 'Nash', 'Summers', 'Atkins'],
-
-        // Data taken from https://github.com/umpirsky/country-list/blob/master/country/cldr/en_US/country.json
-        countries: [{"name":"Afghanistan","abbreviation":"AF"},{"name":"Albania","abbreviation":"AL"},{"name":"Algeria","abbreviation":"DZ"},{"name":"American Samoa","abbreviation":"AS"},{"name":"Andorra","abbreviation":"AD"},{"name":"Angola","abbreviation":"AO"},{"name":"Anguilla","abbreviation":"AI"},{"name":"Antarctica","abbreviation":"AQ"},{"name":"Antigua and Barbuda","abbreviation":"AG"},{"name":"Argentina","abbreviation":"AR"},{"name":"Armenia","abbreviation":"AM"},{"name":"Aruba","abbreviation":"AW"},{"name":"Australia","abbreviation":"AU"},{"name":"Austria","abbreviation":"AT"},{"name":"Azerbaijan","abbreviation":"AZ"},{"name":"Bahamas","abbreviation":"BS"},{"name":"Bahrain","abbreviation":"BH"},{"name":"Bangladesh","abbreviation":"BD"},{"name":"Barbados","abbreviation":"BB"},{"name":"Belarus","abbreviation":"BY"},{"name":"Belgium","abbreviation":"BE"},{"name":"Belize","abbreviation":"BZ"},{"name":"Benin","abbreviation":"BJ"},{"name":"Bermuda","abbreviation":"BM"},{"name":"Bhutan","abbreviation":"BT"},{"name":"Bolivia","abbreviation":"BO"},{"name":"Bosnia and Herzegovina","abbreviation":"BA"},{"name":"Botswana","abbreviation":"BW"},{"name":"Bouvet Island","abbreviation":"BV"},{"name":"Brazil","abbreviation":"BR"},{"name":"British Antarctic Territory","abbreviation":"BQ"},{"name":"British Indian Ocean Territory","abbreviation":"IO"},{"name":"British Virgin Islands","abbreviation":"VG"},{"name":"Brunei","abbreviation":"BN"},{"name":"Bulgaria","abbreviation":"BG"},{"name":"Burkina Faso","abbreviation":"BF"},{"name":"Burundi","abbreviation":"BI"},{"name":"Cambodia","abbreviation":"KH"},{"name":"Cameroon","abbreviation":"CM"},{"name":"Canada","abbreviation":"CA"},{"name":"Canton and Enderbury Islands","abbreviation":"CT"},{"name":"Cape Verde","abbreviation":"CV"},{"name":"Cayman Islands","abbreviation":"KY"},{"name":"Central African Republic","abbreviation":"CF"},{"name":"Chad","abbreviation":"TD"},{"name":"Chile","abbreviation":"CL"},{"name":"China","abbreviation":"CN"},{"name":"Christmas Island","abbreviation":"CX"},{"name":"Cocos [Keeling] Islands","abbreviation":"CC"},{"name":"Colombia","abbreviation":"CO"},{"name":"Comoros","abbreviation":"KM"},{"name":"Congo - Brazzaville","abbreviation":"CG"},{"name":"Congo - Kinshasa","abbreviation":"CD"},{"name":"Cook Islands","abbreviation":"CK"},{"name":"Costa Rica","abbreviation":"CR"},{"name":"Croatia","abbreviation":"HR"},{"name":"Cuba","abbreviation":"CU"},{"name":"Cyprus","abbreviation":"CY"},{"name":"Czech Republic","abbreviation":"CZ"},{"name":"Côte d’Ivoire","abbreviation":"CI"},{"name":"Denmark","abbreviation":"DK"},{"name":"Djibouti","abbreviation":"DJ"},{"name":"Dominica","abbreviation":"DM"},{"name":"Dominican Republic","abbreviation":"DO"},{"name":"Dronning Maud Land","abbreviation":"NQ"},{"name":"East Germany","abbreviation":"DD"},{"name":"Ecuador","abbreviation":"EC"},{"name":"Egypt","abbreviation":"EG"},{"name":"El Salvador","abbreviation":"SV"},{"name":"Equatorial Guinea","abbreviation":"GQ"},{"name":"Eritrea","abbreviation":"ER"},{"name":"Estonia","abbreviation":"EE"},{"name":"Ethiopia","abbreviation":"ET"},{"name":"Falkland Islands","abbreviation":"FK"},{"name":"Faroe Islands","abbreviation":"FO"},{"name":"Fiji","abbreviation":"FJ"},{"name":"Finland","abbreviation":"FI"},{"name":"France","abbreviation":"FR"},{"name":"French Guiana","abbreviation":"GF"},{"name":"French Polynesia","abbreviation":"PF"},{"name":"French Southern Territories","abbreviation":"TF"},{"name":"French Southern and Antarctic Territories","abbreviation":"FQ"},{"name":"Gabon","abbreviation":"GA"},{"name":"Gambia","abbreviation":"GM"},{"name":"Georgia","abbreviation":"GE"},{"name":"Germany","abbreviation":"DE"},{"name":"Ghana","abbreviation":"GH"},{"name":"Gibraltar","abbreviation":"GI"},{"name":"Greece","abbreviation":"GR"},{"name":"Greenland","abbreviation":"GL"},{"name":"Grenada","abbreviation":"GD"},{"name":"Guadeloupe","abbreviation":"GP"},{"name":"Guam","abbreviation":"GU"},{"name":"Guatemala","abbreviation":"GT"},{"name":"Guernsey","abbreviation":"GG"},{"name":"Guinea","abbreviation":"GN"},{"name":"Guinea-Bissau","abbreviation":"GW"},{"name":"Guyana","abbreviation":"GY"},{"name":"Haiti","abbreviation":"HT"},{"name":"Heard Island and McDonald Islands","abbreviation":"HM"},{"name":"Honduras","abbreviation":"HN"},{"name":"Hong Kong SAR China","abbreviation":"HK"},{"name":"Hungary","abbreviation":"HU"},{"name":"Iceland","abbreviation":"IS"},{"name":"India","abbreviation":"IN"},{"name":"Indonesia","abbreviation":"ID"},{"name":"Iran","abbreviation":"IR"},{"name":"Iraq","abbreviation":"IQ"},{"name":"Ireland","abbreviation":"IE"},{"name":"Isle of Man","abbreviation":"IM"},{"name":"Israel","abbreviation":"IL"},{"name":"Italy","abbreviation":"IT"},{"name":"Jamaica","abbreviation":"JM"},{"name":"Japan","abbreviation":"JP"},{"name":"Jersey","abbreviation":"JE"},{"name":"Johnston Island","abbreviation":"JT"},{"name":"Jordan","abbreviation":"JO"},{"name":"Kazakhstan","abbreviation":"KZ"},{"name":"Kenya","abbreviation":"KE"},{"name":"Kiribati","abbreviation":"KI"},{"name":"Kuwait","abbreviation":"KW"},{"name":"Kyrgyzstan","abbreviation":"KG"},{"name":"Laos","abbreviation":"LA"},{"name":"Latvia","abbreviation":"LV"},{"name":"Lebanon","abbreviation":"LB"},{"name":"Lesotho","abbreviation":"LS"},{"name":"Liberia","abbreviation":"LR"},{"name":"Libya","abbreviation":"LY"},{"name":"Liechtenstein","abbreviation":"LI"},{"name":"Lithuania","abbreviation":"LT"},{"name":"Luxembourg","abbreviation":"LU"},{"name":"Macau SAR China","abbreviation":"MO"},{"name":"Macedonia","abbreviation":"MK"},{"name":"Madagascar","abbreviation":"MG"},{"name":"Malawi","abbreviation":"MW"},{"name":"Malaysia","abbreviation":"MY"},{"name":"Maldives","abbreviation":"MV"},{"name":"Mali","abbreviation":"ML"},{"name":"Malta","abbreviation":"MT"},{"name":"Marshall Islands","abbreviation":"MH"},{"name":"Martinique","abbreviation":"MQ"},{"name":"Mauritania","abbreviation":"MR"},{"name":"Mauritius","abbreviation":"MU"},{"name":"Mayotte","abbreviation":"YT"},{"name":"Metropolitan France","abbreviation":"FX"},{"name":"Mexico","abbreviation":"MX"},{"name":"Micronesia","abbreviation":"FM"},{"name":"Midway Islands","abbreviation":"MI"},{"name":"Moldova","abbreviation":"MD"},{"name":"Monaco","abbreviation":"MC"},{"name":"Mongolia","abbreviation":"MN"},{"name":"Montenegro","abbreviation":"ME"},{"name":"Montserrat","abbreviation":"MS"},{"name":"Morocco","abbreviation":"MA"},{"name":"Mozambique","abbreviation":"MZ"},{"name":"Myanmar [Burma]","abbreviation":"MM"},{"name":"Namibia","abbreviation":"NA"},{"name":"Nauru","abbreviation":"NR"},{"name":"Nepal","abbreviation":"NP"},{"name":"Netherlands","abbreviation":"NL"},{"name":"Netherlands Antilles","abbreviation":"AN"},{"name":"Neutral Zone","abbreviation":"NT"},{"name":"New Caledonia","abbreviation":"NC"},{"name":"New Zealand","abbreviation":"NZ"},{"name":"Nicaragua","abbreviation":"NI"},{"name":"Niger","abbreviation":"NE"},{"name":"Nigeria","abbreviation":"NG"},{"name":"Niue","abbreviation":"NU"},{"name":"Norfolk Island","abbreviation":"NF"},{"name":"North Korea","abbreviation":"KP"},{"name":"North Vietnam","abbreviation":"VD"},{"name":"Northern Mariana Islands","abbreviation":"MP"},{"name":"Norway","abbreviation":"NO"},{"name":"Oman","abbreviation":"OM"},{"name":"Pacific Islands Trust Territory","abbreviation":"PC"},{"name":"Pakistan","abbreviation":"PK"},{"name":"Palau","abbreviation":"PW"},{"name":"Palestinian Territories","abbreviation":"PS"},{"name":"Panama","abbreviation":"PA"},{"name":"Panama Canal Zone","abbreviation":"PZ"},{"name":"Papua New Guinea","abbreviation":"PG"},{"name":"Paraguay","abbreviation":"PY"},{"name":"People's Democratic Republic of Yemen","abbreviation":"YD"},{"name":"Peru","abbreviation":"PE"},{"name":"Philippines","abbreviation":"PH"},{"name":"Pitcairn Islands","abbreviation":"PN"},{"name":"Poland","abbreviation":"PL"},{"name":"Portugal","abbreviation":"PT"},{"name":"Puerto Rico","abbreviation":"PR"},{"name":"Qatar","abbreviation":"QA"},{"name":"Romania","abbreviation":"RO"},{"name":"Russia","abbreviation":"RU"},{"name":"Rwanda","abbreviation":"RW"},{"name":"Réunion","abbreviation":"RE"},{"name":"Saint Barthélemy","abbreviation":"BL"},{"name":"Saint Helena","abbreviation":"SH"},{"name":"Saint Kitts and Nevis","abbreviation":"KN"},{"name":"Saint Lucia","abbreviation":"LC"},{"name":"Saint Martin","abbreviation":"MF"},{"name":"Saint Pierre and Miquelon","abbreviation":"PM"},{"name":"Saint Vincent and the Grenadines","abbreviation":"VC"},{"name":"Samoa","abbreviation":"WS"},{"name":"San Marino","abbreviation":"SM"},{"name":"Saudi Arabia","abbreviation":"SA"},{"name":"Senegal","abbreviation":"SN"},{"name":"Serbia","abbreviation":"RS"},{"name":"Serbia and Montenegro","abbreviation":"CS"},{"name":"Seychelles","abbreviation":"SC"},{"name":"Sierra Leone","abbreviation":"SL"},{"name":"Singapore","abbreviation":"SG"},{"name":"Slovakia","abbreviation":"SK"},{"name":"Slovenia","abbreviation":"SI"},{"name":"Solomon Islands","abbreviation":"SB"},{"name":"Somalia","abbreviation":"SO"},{"name":"South Africa","abbreviation":"ZA"},{"name":"South Georgia and the South Sandwich Islands","abbreviation":"GS"},{"name":"South Korea","abbreviation":"KR"},{"name":"Spain","abbreviation":"ES"},{"name":"Sri Lanka","abbreviation":"LK"},{"name":"Sudan","abbreviation":"SD"},{"name":"Suriname","abbreviation":"SR"},{"name":"Svalbard and Jan Mayen","abbreviation":"SJ"},{"name":"Swaziland","abbreviation":"SZ"},{"name":"Sweden","abbreviation":"SE"},{"name":"Switzerland","abbreviation":"CH"},{"name":"Syria","abbreviation":"SY"},{"name":"São Tomé and Príncipe","abbreviation":"ST"},{"name":"Taiwan","abbreviation":"TW"},{"name":"Tajikistan","abbreviation":"TJ"},{"name":"Tanzania","abbreviation":"TZ"},{"name":"Thailand","abbreviation":"TH"},{"name":"Timor-Leste","abbreviation":"TL"},{"name":"Togo","abbreviation":"TG"},{"name":"Tokelau","abbreviation":"TK"},{"name":"Tonga","abbreviation":"TO"},{"name":"Trinidad and Tobago","abbreviation":"TT"},{"name":"Tunisia","abbreviation":"TN"},{"name":"Turkey","abbreviation":"TR"},{"name":"Turkmenistan","abbreviation":"TM"},{"name":"Turks and Caicos Islands","abbreviation":"TC"},{"name":"Tuvalu","abbreviation":"TV"},{"name":"U.S. Minor Outlying Islands","abbreviation":"UM"},{"name":"U.S. Miscellaneous Pacific Islands","abbreviation":"PU"},{"name":"U.S. Virgin Islands","abbreviation":"VI"},{"name":"Uganda","abbreviation":"UG"},{"name":"Ukraine","abbreviation":"UA"},{"name":"Union of Soviet Socialist Republics","abbreviation":"SU"},{"name":"United Arab Emirates","abbreviation":"AE"},{"name":"United Kingdom","abbreviation":"GB"},{"name":"United States","abbreviation":"US"},{"name":"Unknown or Invalid Region","abbreviation":"ZZ"},{"name":"Uruguay","abbreviation":"UY"},{"name":"Uzbekistan","abbreviation":"UZ"},{"name":"Vanuatu","abbreviation":"VU"},{"name":"Vatican City","abbreviation":"VA"},{"name":"Venezuela","abbreviation":"VE"},{"name":"Vietnam","abbreviation":"VN"},{"name":"Wake Island","abbreviation":"WK"},{"name":"Wallis and Futuna","abbreviation":"WF"},{"name":"Western Sahara","abbreviation":"EH"},{"name":"Yemen","abbreviation":"YE"},{"name":"Zambia","abbreviation":"ZM"},{"name":"Zimbabwe","abbreviation":"ZW"},{"name":"Åland Islands","abbreviation":"AX"}],
-
-        provinces: [
-            {name: 'Alberta', abbreviation: 'AB'},
-            {name: 'British Columbia', abbreviation: 'BC'},
-            {name: 'Manitoba', abbreviation: 'MB'},
-            {name: 'New Brunswick', abbreviation: 'NB'},
-            {name: 'Newfoundland and Labrador', abbreviation: 'NL'},
-            {name: 'Nova Scotia', abbreviation: 'NS'},
-            {name: 'Ontario', abbreviation: 'ON'},
-            {name: 'Prince Edward Island', abbreviation: 'PE'},
-            {name: 'Quebec', abbreviation: 'QC'},
-            {name: 'Saskatchewan', abbreviation: 'SK'},
-
-            // The case could be made that the following are not actually provinces
-            // since they are technically considered "territories" however they all
-            // look the same on an envelope!
-            {name: 'Northwest Territories', abbreviation: 'NT'},
-            {name: 'Nunavut', abbreviation: 'NU'},
-            {name: 'Yukon', abbreviation: 'YT'}
-        ],
-
-        us_states_and_dc: [
-            {name: 'Alabama', abbreviation: 'AL'},
-            {name: 'Alaska', abbreviation: 'AK'},
-            {name: 'Arizona', abbreviation: 'AZ'},
-            {name: 'Arkansas', abbreviation: 'AR'},
-            {name: 'California', abbreviation: 'CA'},
-            {name: 'Colorado', abbreviation: 'CO'},
-            {name: 'Connecticut', abbreviation: 'CT'},
-            {name: 'Delaware', abbreviation: 'DE'},
-            {name: 'District of Columbia', abbreviation: 'DC'},
-            {name: 'Florida', abbreviation: 'FL'},
-            {name: 'Georgia', abbreviation: 'GA'},
-            {name: 'Hawaii', abbreviation: 'HI'},
-            {name: 'Idaho', abbreviation: 'ID'},
-            {name: 'Illinois', abbreviation: 'IL'},
-            {name: 'Indiana', abbreviation: 'IN'},
-            {name: 'Iowa', abbreviation: 'IA'},
-            {name: 'Kansas', abbreviation: 'KS'},
-            {name: 'Kentucky', abbreviation: 'KY'},
-            {name: 'Louisiana', abbreviation: 'LA'},
-            {name: 'Maine', abbreviation: 'ME'},
-            {name: 'Maryland', abbreviation: 'MD'},
-            {name: 'Massachusetts', abbreviation: 'MA'},
-            {name: 'Michigan', abbreviation: 'MI'},
-            {name: 'Minnesota', abbreviation: 'MN'},
-            {name: 'Mississippi', abbreviation: 'MS'},
-            {name: 'Missouri', abbreviation: 'MO'},
-            {name: 'Montana', abbreviation: 'MT'},
-            {name: 'Nebraska', abbreviation: 'NE'},
-            {name: 'Nevada', abbreviation: 'NV'},
-            {name: 'New Hampshire', abbreviation: 'NH'},
-            {name: 'New Jersey', abbreviation: 'NJ'},
-            {name: 'New Mexico', abbreviation: 'NM'},
-            {name: 'New York', abbreviation: 'NY'},
-            {name: 'North Carolina', abbreviation: 'NC'},
-            {name: 'North Dakota', abbreviation: 'ND'},
-            {name: 'Ohio', abbreviation: 'OH'},
-            {name: 'Oklahoma', abbreviation: 'OK'},
-            {name: 'Oregon', abbreviation: 'OR'},
-            {name: 'Pennsylvania', abbreviation: 'PA'},
-            {name: 'Rhode Island', abbreviation: 'RI'},
-            {name: 'South Carolina', abbreviation: 'SC'},
-            {name: 'South Dakota', abbreviation: 'SD'},
-            {name: 'Tennessee', abbreviation: 'TN'},
-            {name: 'Texas', abbreviation: 'TX'},
-            {name: 'Utah', abbreviation: 'UT'},
-            {name: 'Vermont', abbreviation: 'VT'},
-            {name: 'Virginia', abbreviation: 'VA'},
-            {name: 'Washington', abbreviation: 'WA'},
-            {name: 'West Virginia', abbreviation: 'WV'},
-            {name: 'Wisconsin', abbreviation: 'WI'},
-            {name: 'Wyoming', abbreviation: 'WY'}
-        ],
-
-        territories: [
-            {name: 'American Samoa', abbreviation: 'AS'},
-            {name: 'Federated States of Micronesia', abbreviation: 'FM'},
-            {name: 'Guam', abbreviation: 'GU'},
-            {name: 'Marshall Islands', abbreviation: 'MH'},
-            {name: 'Northern Mariana Islands', abbreviation: 'MP'},
-            {name: 'Puerto Rico', abbreviation: 'PR'},
-            {name: 'Virgin Islands, U.S.', abbreviation: 'VI'}
-        ],
-
-        armed_forces: [
-            {name: 'Armed Forces Europe', abbreviation: 'AE'},
-            {name: 'Armed Forces Pacific', abbreviation: 'AP'},
-            {name: 'Armed Forces the Americas', abbreviation: 'AA'}
-        ],
-
-        street_suffixes: [
-            {name: 'Avenue', abbreviation: 'Ave'},
-            {name: 'Boulevard', abbreviation: 'Blvd'},
-            {name: 'Center', abbreviation: 'Ctr'},
-            {name: 'Circle', abbreviation: 'Cir'},
-            {name: 'Court', abbreviation: 'Ct'},
-            {name: 'Drive', abbreviation: 'Dr'},
-            {name: 'Extension', abbreviation: 'Ext'},
-            {name: 'Glen', abbreviation: 'Gln'},
-            {name: 'Grove', abbreviation: 'Grv'},
-            {name: 'Heights', abbreviation: 'Hts'},
-            {name: 'Highway', abbreviation: 'Hwy'},
-            {name: 'Junction', abbreviation: 'Jct'},
-            {name: 'Key', abbreviation: 'Key'},
-            {name: 'Lane', abbreviation: 'Ln'},
-            {name: 'Loop', abbreviation: 'Loop'},
-            {name: 'Manor', abbreviation: 'Mnr'},
-            {name: 'Mill', abbreviation: 'Mill'},
-            {name: 'Park', abbreviation: 'Park'},
-            {name: 'Parkway', abbreviation: 'Pkwy'},
-            {name: 'Pass', abbreviation: 'Pass'},
-            {name: 'Path', abbreviation: 'Path'},
-            {name: 'Pike', abbreviation: 'Pike'},
-            {name: 'Place', abbreviation: 'Pl'},
-            {name: 'Plaza', abbreviation: 'Plz'},
-            {name: 'Point', abbreviation: 'Pt'},
-            {name: 'Ridge', abbreviation: 'Rdg'},
-            {name: 'River', abbreviation: 'Riv'},
-            {name: 'Road', abbreviation: 'Rd'},
-            {name: 'Square', abbreviation: 'Sq'},
-            {name: 'Street', abbreviation: 'St'},
-            {name: 'Terrace', abbreviation: 'Ter'},
-            {name: 'Trail', abbreviation: 'Trl'},
-            {name: 'Turnpike', abbreviation: 'Tpke'},
-            {name: 'View', abbreviation: 'Vw'},
-            {name: 'Way', abbreviation: 'Way'}
-        ],
-
-        months: [
-            {name: 'January', short_name: 'Jan', numeric: '01', days: 31},
-            // Not messing with leap years...
-            {name: 'February', short_name: 'Feb', numeric: '02', days: 28},
-            {name: 'March', short_name: 'Mar', numeric: '03', days: 31},
-            {name: 'April', short_name: 'Apr', numeric: '04', days: 30},
-            {name: 'May', short_name: 'May', numeric: '05', days: 31},
-            {name: 'June', short_name: 'Jun', numeric: '06', days: 30},
-            {name: 'July', short_name: 'Jul', numeric: '07', days: 31},
-            {name: 'August', short_name: 'Aug', numeric: '08', days: 31},
-            {name: 'September', short_name: 'Sep', numeric: '09', days: 30},
-            {name: 'October', short_name: 'Oct', numeric: '10', days: 31},
-            {name: 'November', short_name: 'Nov', numeric: '11', days: 30},
-            {name: 'December', short_name: 'Dec', numeric: '12', days: 31}
-        ],
-
-        // http://en.wikipedia.org/wiki/Bank_card_number#Issuer_identification_number_.28IIN.29
-        cc_types: [
-            {name: "American Express", short_name: 'amex', prefix: '34', length: 15},
-            {name: "Bankcard", short_name: 'bankcard', prefix: '5610', length: 16},
-            {name: "China UnionPay", short_name: 'chinaunion', prefix: '62', length: 16},
-            {name: "Diners Club Carte Blanche", short_name: 'dccarte', prefix: '300', length: 14},
-            {name: "Diners Club enRoute", short_name: 'dcenroute', prefix: '2014', length: 15},
-            {name: "Diners Club International", short_name: 'dcintl', prefix: '36', length: 14},
-            {name: "Diners Club United States & Canada", short_name: 'dcusc', prefix: '54', length: 16},
-            {name: "Discover Card", short_name: 'discover', prefix: '6011', length: 16},
-            {name: "InstaPayment", short_name: 'instapay', prefix: '637', length: 16},
-            {name: "JCB", short_name: 'jcb', prefix: '3528', length: 16},
-            {name: "Laser", short_name: 'laser', prefix: '6304', length: 16},
-            {name: "Maestro", short_name: 'maestro', prefix: '5018', length: 16},
-            {name: "Mastercard", short_name: 'mc', prefix: '51', length: 16},
-            {name: "Solo", short_name: 'solo', prefix: '6334', length: 16},
-            {name: "Switch", short_name: 'switch', prefix: '4903', length: 16},
-            {name: "Visa", short_name: 'visa', prefix: '4', length: 16},
-            {name: "Visa Electron", short_name: 'electron', prefix: '4026', length: 16}
-        ],
-
-        //return all world currency by ISO 4217
-        currency_types: [
-            {'code' : 'AED', 'name' : 'United Arab Emirates Dirham'},
-            {'code' : 'AFN', 'name' : 'Afghanistan Afghani'},
-            {'code' : 'ALL', 'name' : 'Albania Lek'},
-            {'code' : 'AMD', 'name' : 'Armenia Dram'},
-            {'code' : 'ANG', 'name' : 'Netherlands Antilles Guilder'},
-            {'code' : 'AOA', 'name' : 'Angola Kwanza'},
-            {'code' : 'ARS', 'name' : 'Argentina Peso'},
-            {'code' : 'AUD', 'name' : 'Australia Dollar'},
-            {'code' : 'AWG', 'name' : 'Aruba Guilder'},
-            {'code' : 'AZN', 'name' : 'Azerbaijan New Manat'},
-            {'code' : 'BAM', 'name' : 'Bosnia and Herzegovina Convertible Marka'},
-            {'code' : 'BBD', 'name' : 'Barbados Dollar'},
-            {'code' : 'BDT', 'name' : 'Bangladesh Taka'},
-            {'code' : 'BGN', 'name' : 'Bulgaria Lev'},
-            {'code' : 'BHD', 'name' : 'Bahrain Dinar'},
-            {'code' : 'BIF', 'name' : 'Burundi Franc'},
-            {'code' : 'BMD', 'name' : 'Bermuda Dollar'},
-            {'code' : 'BND', 'name' : 'Brunei Darussalam Dollar'},
-            {'code' : 'BOB', 'name' : 'Bolivia Boliviano'},
-            {'code' : 'BRL', 'name' : 'Brazil Real'},
-            {'code' : 'BSD', 'name' : 'Bahamas Dollar'},
-            {'code' : 'BTN', 'name' : 'Bhutan Ngultrum'},
-            {'code' : 'BWP', 'name' : 'Botswana Pula'},
-            {'code' : 'BYR', 'name' : 'Belarus Ruble'},
-            {'code' : 'BZD', 'name' : 'Belize Dollar'},
-            {'code' : 'CAD', 'name' : 'Canada Dollar'},
-            {'code' : 'CDF', 'name' : 'Congo/Kinshasa Franc'},
-            {'code' : 'CHF', 'name' : 'Switzerland Franc'},
-            {'code' : 'CLP', 'name' : 'Chile Peso'},
-            {'code' : 'CNY', 'name' : 'China Yuan Renminbi'},
-            {'code' : 'COP', 'name' : 'Colombia Peso'},
-            {'code' : 'CRC', 'name' : 'Costa Rica Colon'},
-            {'code' : 'CUC', 'name' : 'Cuba Convertible Peso'},
-            {'code' : 'CUP', 'name' : 'Cuba Peso'},
-            {'code' : 'CVE', 'name' : 'Cape Verde Escudo'},
-            {'code' : 'CZK', 'name' : 'Czech Republic Koruna'},
-            {'code' : 'DJF', 'name' : 'Djibouti Franc'},
-            {'code' : 'DKK', 'name' : 'Denmark Krone'},
-            {'code' : 'DOP', 'name' : 'Dominican Republic Peso'},
-            {'code' : 'DZD', 'name' : 'Algeria Dinar'},
-            {'code' : 'EGP', 'name' : 'Egypt Pound'},
-            {'code' : 'ERN', 'name' : 'Eritrea Nakfa'},
-            {'code' : 'ETB', 'name' : 'Ethiopia Birr'},
-            {'code' : 'EUR', 'name' : 'Euro Member Countries'},
-            {'code' : 'FJD', 'name' : 'Fiji Dollar'},
-            {'code' : 'FKP', 'name' : 'Falkland Islands (Malvinas) Pound'},
-            {'code' : 'GBP', 'name' : 'United Kingdom Pound'},
-            {'code' : 'GEL', 'name' : 'Georgia Lari'},
-            {'code' : 'GGP', 'name' : 'Guernsey Pound'},
-            {'code' : 'GHS', 'name' : 'Ghana Cedi'},
-            {'code' : 'GIP', 'name' : 'Gibraltar Pound'},
-            {'code' : 'GMD', 'name' : 'Gambia Dalasi'},
-            {'code' : 'GNF', 'name' : 'Guinea Franc'},
-            {'code' : 'GTQ', 'name' : 'Guatemala Quetzal'},
-            {'code' : 'GYD', 'name' : 'Guyana Dollar'},
-            {'code' : 'HKD', 'name' : 'Hong Kong Dollar'},
-            {'code' : 'HNL', 'name' : 'Honduras Lempira'},
-            {'code' : 'HRK', 'name' : 'Croatia Kuna'},
-            {'code' : 'HTG', 'name' : 'Haiti Gourde'},
-            {'code' : 'HUF', 'name' : 'Hungary Forint'},
-            {'code' : 'IDR', 'name' : 'Indonesia Rupiah'},
-            {'code' : 'ILS', 'name' : 'Israel Shekel'},
-            {'code' : 'IMP', 'name' : 'Isle of Man Pound'},
-            {'code' : 'INR', 'name' : 'India Rupee'},
-            {'code' : 'IQD', 'name' : 'Iraq Dinar'},
-            {'code' : 'IRR', 'name' : 'Iran Rial'},
-            {'code' : 'ISK', 'name' : 'Iceland Krona'},
-            {'code' : 'JEP', 'name' : 'Jersey Pound'},
-            {'code' : 'JMD', 'name' : 'Jamaica Dollar'},
-            {'code' : 'JOD', 'name' : 'Jordan Dinar'},
-            {'code' : 'JPY', 'name' : 'Japan Yen'},
-            {'code' : 'KES', 'name' : 'Kenya Shilling'},
-            {'code' : 'KGS', 'name' : 'Kyrgyzstan Som'},
-            {'code' : 'KHR', 'name' : 'Cambodia Riel'},
-            {'code' : 'KMF', 'name' : 'Comoros Franc'},
-            {'code' : 'KPW', 'name' : 'Korea (North) Won'},
-            {'code' : 'KRW', 'name' : 'Korea (South) Won'},
-            {'code' : 'KWD', 'name' : 'Kuwait Dinar'},
-            {'code' : 'KYD', 'name' : 'Cayman Islands Dollar'},
-            {'code' : 'KZT', 'name' : 'Kazakhstan Tenge'},
-            {'code' : 'LAK', 'name' : 'Laos Kip'},
-            {'code' : 'LBP', 'name' : 'Lebanon Pound'},
-            {'code' : 'LKR', 'name' : 'Sri Lanka Rupee'},
-            {'code' : 'LRD', 'name' : 'Liberia Dollar'},
-            {'code' : 'LSL', 'name' : 'Lesotho Loti'},
-            {'code' : 'LTL', 'name' : 'Lithuania Litas'},
-            {'code' : 'LYD', 'name' : 'Libya Dinar'},
-            {'code' : 'MAD', 'name' : 'Morocco Dirham'},
-            {'code' : 'MDL', 'name' : 'Moldova Leu'},
-            {'code' : 'MGA', 'name' : 'Madagascar Ariary'},
-            {'code' : 'MKD', 'name' : 'Macedonia Denar'},
-            {'code' : 'MMK', 'name' : 'Myanmar (Burma) Kyat'},
-            {'code' : 'MNT', 'name' : 'Mongolia Tughrik'},
-            {'code' : 'MOP', 'name' : 'Macau Pataca'},
-            {'code' : 'MRO', 'name' : 'Mauritania Ouguiya'},
-            {'code' : 'MUR', 'name' : 'Mauritius Rupee'},
-            {'code' : 'MVR', 'name' : 'Maldives (Maldive Islands) Rufiyaa'},
-            {'code' : 'MWK', 'name' : 'Malawi Kwacha'},
-            {'code' : 'MXN', 'name' : 'Mexico Peso'},
-            {'code' : 'MYR', 'name' : 'Malaysia Ringgit'},
-            {'code' : 'MZN', 'name' : 'Mozambique Metical'},
-            {'code' : 'NAD', 'name' : 'Namibia Dollar'},
-            {'code' : 'NGN', 'name' : 'Nigeria Naira'},
-            {'code' : 'NIO', 'name' : 'Nicaragua Cordoba'},
-            {'code' : 'NOK', 'name' : 'Norway Krone'},
-            {'code' : 'NPR', 'name' : 'Nepal Rupee'},
-            {'code' : 'NZD', 'name' : 'New Zealand Dollar'},
-            {'code' : 'OMR', 'name' : 'Oman Rial'},
-            {'code' : 'PAB', 'name' : 'Panama Balboa'},
-            {'code' : 'PEN', 'name' : 'Peru Nuevo Sol'},
-            {'code' : 'PGK', 'name' : 'Papua New Guinea Kina'},
-            {'code' : 'PHP', 'name' : 'Philippines Peso'},
-            {'code' : 'PKR', 'name' : 'Pakistan Rupee'},
-            {'code' : 'PLN', 'name' : 'Poland Zloty'},
-            {'code' : 'PYG', 'name' : 'Paraguay Guarani'},
-            {'code' : 'QAR', 'name' : 'Qatar Riyal'},
-            {'code' : 'RON', 'name' : 'Romania New Leu'},
-            {'code' : 'RSD', 'name' : 'Serbia Dinar'},
-            {'code' : 'RUB', 'name' : 'Russia Ruble'},
-            {'code' : 'RWF', 'name' : 'Rwanda Franc'},
-            {'code' : 'SAR', 'name' : 'Saudi Arabia Riyal'},
-            {'code' : 'SBD', 'name' : 'Solomon Islands Dollar'},
-            {'code' : 'SCR', 'name' : 'Seychelles Rupee'},
-            {'code' : 'SDG', 'name' : 'Sudan Pound'},
-            {'code' : 'SEK', 'name' : 'Sweden Krona'},
-            {'code' : 'SGD', 'name' : 'Singapore Dollar'},
-            {'code' : 'SHP', 'name' : 'Saint Helena Pound'},
-            {'code' : 'SLL', 'name' : 'Sierra Leone Leone'},
-            {'code' : 'SOS', 'name' : 'Somalia Shilling'},
-            {'code' : 'SPL', 'name' : 'Seborga Luigino'},
-            {'code' : 'SRD', 'name' : 'Suriname Dollar'},
-            {'code' : 'STD', 'name' : 'São Tomé and Príncipe Dobra'},
-            {'code' : 'SVC', 'name' : 'El Salvador Colon'},
-            {'code' : 'SYP', 'name' : 'Syria Pound'},
-            {'code' : 'SZL', 'name' : 'Swaziland Lilangeni'},
-            {'code' : 'THB', 'name' : 'Thailand Baht'},
-            {'code' : 'TJS', 'name' : 'Tajikistan Somoni'},
-            {'code' : 'TMT', 'name' : 'Turkmenistan Manat'},
-            {'code' : 'TND', 'name' : 'Tunisia Dinar'},
-            {'code' : 'TOP', 'name' : 'Tonga Pa\'anga'},
-            {'code' : 'TRY', 'name' : 'Turkey Lira'},
-            {'code' : 'TTD', 'name' : 'Trinidad and Tobago Dollar'},
-            {'code' : 'TVD', 'name' : 'Tuvalu Dollar'},
-            {'code' : 'TWD', 'name' : 'Taiwan New Dollar'},
-            {'code' : 'TZS', 'name' : 'Tanzania Shilling'},
-            {'code' : 'UAH', 'name' : 'Ukraine Hryvnia'},
-            {'code' : 'UGX', 'name' : 'Uganda Shilling'},
-            {'code' : 'USD', 'name' : 'United States Dollar'},
-            {'code' : 'UYU', 'name' : 'Uruguay Peso'},
-            {'code' : 'UZS', 'name' : 'Uzbekistan Som'},
-            {'code' : 'VEF', 'name' : 'Venezuela Bolivar'},
-            {'code' : 'VND', 'name' : 'Viet Nam Dong'},
-            {'code' : 'VUV', 'name' : 'Vanuatu Vatu'},
-            {'code' : 'WST', 'name' : 'Samoa Tala'},
-            {'code' : 'XAF', 'name' : 'Communauté Financière Africaine (BEAC) CFA Franc BEAC'},
-            {'code' : 'XCD', 'name' : 'East Caribbean Dollar'},
-            {'code' : 'XDR', 'name' : 'International Monetary Fund (IMF) Special Drawing Rights'},
-            {'code' : 'XOF', 'name' : 'Communauté Financière Africaine (BCEAO) Franc'},
-            {'code' : 'XPF', 'name' : 'Comptoirs Français du Pacifique (CFP) Franc'},
-            {'code' : 'YER', 'name' : 'Yemen Rial'},
-            {'code' : 'ZAR', 'name' : 'South Africa Rand'},
-            {'code' : 'ZMW', 'name' : 'Zambia Kwacha'},
-            {'code' : 'ZWD', 'name' : 'Zimbabwe Dollar'}
-        ]
-    };
-
-    var o_hasOwnProperty = Object.prototype.hasOwnProperty;
-    var o_keys = (Object.keys || function(obj) {
-      var result = [];
-      for (var key in obj) {
-        if (o_hasOwnProperty.call(obj, key)) {
-          result.push(key);
-        }
-      }
-
-      return result;
-    });
-
-    function _copyObject(source, target) {
-      var keys = o_keys(source);
-      var key;
-
-      for (var i = 0, l = keys.length; i < l; i++) {
-        key = keys[i];
-        target[key] = source[key] || target[key];
-      }
-    }
-
-    function _copyArray(source, target) {
-      for (var i = 0, l = source.length; i < l; i++) {
-        target[i] = source[i];
-      }
-    }
-
-    function copyObject(source, _target) {
-        var isArray = Array.isArray(source);
-        var target = _target || (isArray ? new Array(source.length) : {});
-
-        if (isArray) {
-          _copyArray(source, target);
-        } else {
-          _copyObject(source, target);
-        }
-
-        return target;
-    }
-
-    /** Get the data based on key**/
-    Chance.prototype.get = function (name) {
-        return copyObject(data[name]);
-    };
-
-    // Mac Address
-    Chance.prototype.mac_address = function(options){
-        // typically mac addresses are separated by ":"
-        // however they can also be separated by "-"
-        // the network variant uses a dot every fourth byte
-
-        options = initOptions(options);
-        if(!options.separator) {
-            options.separator =  options.networkVersion ? "." : ":";
-        }
-
-        var mac_pool="ABCDEF1234567890",
-            mac = "";
-        if(!options.networkVersion) {
-            mac = this.n(this.string, 6, { pool: mac_pool, length:2 }).join(options.separator);
-        } else {
-            mac = this.n(this.string, 3, { pool: mac_pool, length:4 }).join(options.separator);
-        }
-
-        return mac;
-    };
-
-    Chance.prototype.normal = function (options) {
-        options = initOptions(options, {mean : 0, dev : 1});
-
-        // The Marsaglia Polar method
-        var s, u, v, norm,
-            mean = options.mean,
-            dev = options.dev;
-
-        do {
-            // U and V are from the uniform distribution on (-1, 1)
-            u = this.random() * 2 - 1;
-            v = this.random() * 2 - 1;
-
-            s = u * u + v * v;
-        } while (s >= 1);
-
-        // Compute the standard normal variate
-        norm = u * Math.sqrt(-2 * Math.log(s) / s);
-
-        // Shape and scale
-        return dev * norm + mean;
-    };
-
-    Chance.prototype.radio = function (options) {
-        // Initial Letter (Typically Designated by Side of Mississippi River)
-        options = initOptions(options, {side : "?"});
-        var fl = "";
-        switch (options.side.toLowerCase()) {
-        case "east":
-        case "e":
-            fl = "W";
-            break;
-        case "west":
-        case "w":
-            fl = "K";
-            break;
-        default:
-            fl = this.character({pool: "KW"});
-            break;
-        }
-
-        return fl + this.character({alpha: true, casing: "upper"}) +
-                this.character({alpha: true, casing: "upper"}) +
-                this.character({alpha: true, casing: "upper"});
-    };
-
-    // Set the data as key and data or the data map
-    Chance.prototype.set = function (name, values) {
-        if (typeof name === "string") {
-            data[name] = values;
-        } else {
-            data = copyObject(name, data);
-        }
-    };
-
-    Chance.prototype.tv = function (options) {
-        return this.radio(options);
-    };
-
-    // ID number for Brazil companies
-    Chance.prototype.cnpj = function () {
-        var n = this.n(this.natural, 8, { max: 9 });
-        var d1 = 2+n[7]*6+n[6]*7+n[5]*8+n[4]*9+n[3]*2+n[2]*3+n[1]*4+n[0]*5;
-        d1 = 11 - (d1 % 11);
-        if (d1>=10){
-            d1 = 0;
-        }
-        var d2 = d1*2+3+n[7]*7+n[6]*8+n[5]*9+n[4]*2+n[3]*3+n[2]*4+n[1]*5+n[0]*6;
-        d2 = 11 - (d2 % 11);
-        if (d2>=10){
-            d2 = 0;
-        }
-        return ''+n[0]+n[1]+'.'+n[2]+n[3]+n[4]+'.'+n[5]+n[6]+n[7]+'/0001-'+d1+d2;
-    };
-
-    // -- End Miscellaneous --
-
-    Chance.prototype.mersenne_twister = function (seed) {
-        return new MersenneTwister(seed);
-    };
-
-    // Mersenne Twister from https://gist.github.com/banksean/300494
-    var MersenneTwister = function (seed) {
-        if (seed === undefined) {
-            seed = new Date().getTime();
-        }
-        /* Period parameters */
-        this.N = 624;
-        this.M = 397;
-        this.MATRIX_A = 0x9908b0df;   /* constant vector a */
-        this.UPPER_MASK = 0x80000000; /* most significant w-r bits */
-        this.LOWER_MASK = 0x7fffffff; /* least significant r bits */
-
-        this.mt = new Array(this.N); /* the array for the state vector */
-        this.mti = this.N + 1; /* mti==N + 1 means mt[N] is not initialized */
-
-        this.init_genrand(seed);
-    };
-
-    /* initializes mt[N] with a seed */
-    MersenneTwister.prototype.init_genrand = function (s) {
-        this.mt[0] = s >>> 0;
-        for (this.mti = 1; this.mti < this.N; this.mti++) {
-            s = this.mt[this.mti - 1] ^ (this.mt[this.mti - 1] >>> 30);
-            this.mt[this.mti] = (((((s & 0xffff0000) >>> 16) * 1812433253) << 16) + (s & 0x0000ffff) * 1812433253) + this.mti;
-            /* See Knuth TAOCP Vol2. 3rd Ed. P.106 for multiplier. */
-            /* In the previous versions, MSBs of the seed affect   */
-            /* only MSBs of the array mt[].                        */
-            /* 2002/01/09 modified by Makoto Matsumoto             */
-            this.mt[this.mti] >>>= 0;
-            /* for >32 bit machines */
-        }
-    };
-
-    /* initialize by an array with array-length */
-    /* init_key is the array for initializing keys */
-    /* key_length is its length */
-    /* slight change for C++, 2004/2/26 */
-    MersenneTwister.prototype.init_by_array = function (init_key, key_length) {
-        var i = 1, j = 0, k, s;
-        this.init_genrand(19650218);
-        k = (this.N > key_length ? this.N : key_length);
-        for (; k; k--) {
-            s = this.mt[i - 1] ^ (this.mt[i - 1] >>> 30);
-            this.mt[i] = (this.mt[i] ^ (((((s & 0xffff0000) >>> 16) * 1664525) << 16) + ((s & 0x0000ffff) * 1664525))) + init_key[j] + j; /* non linear */
-            this.mt[i] >>>= 0; /* for WORDSIZE > 32 machines */
-            i++;
-            j++;
-            if (i >= this.N) { this.mt[0] = this.mt[this.N - 1]; i = 1; }
-            if (j >= key_length) { j = 0; }
-        }
-        for (k = this.N - 1; k; k--) {
-            s = this.mt[i - 1] ^ (this.mt[i - 1] >>> 30);
-            this.mt[i] = (this.mt[i] ^ (((((s & 0xffff0000) >>> 16) * 1566083941) << 16) + (s & 0x0000ffff) * 1566083941)) - i; /* non linear */
-            this.mt[i] >>>= 0; /* for WORDSIZE > 32 machines */
-            i++;
-            if (i >= this.N) { this.mt[0] = this.mt[this.N - 1]; i = 1; }
-        }
-
-        this.mt[0] = 0x80000000; /* MSB is 1; assuring non-zero initial array */
-    };
-
-    /* generates a random number on [0,0xffffffff]-interval */
-    MersenneTwister.prototype.genrand_int32 = function () {
-        var y;
-        var mag01 = new Array(0x0, this.MATRIX_A);
-        /* mag01[x] = x * MATRIX_A  for x=0,1 */
-
-        if (this.mti >= this.N) { /* generate N words at one time */
-            var kk;
-
-            if (this.mti === this.N + 1) {   /* if init_genrand() has not been called, */
-                this.init_genrand(5489); /* a default initial seed is used */
-            }
-            for (kk = 0; kk < this.N - this.M; kk++) {
-                y = (this.mt[kk]&this.UPPER_MASK)|(this.mt[kk + 1]&this.LOWER_MASK);
-                this.mt[kk] = this.mt[kk + this.M] ^ (y >>> 1) ^ mag01[y & 0x1];
-            }
-            for (;kk < this.N - 1; kk++) {
-                y = (this.mt[kk]&this.UPPER_MASK)|(this.mt[kk + 1]&this.LOWER_MASK);
-                this.mt[kk] = this.mt[kk + (this.M - this.N)] ^ (y >>> 1) ^ mag01[y & 0x1];
-            }
-            y = (this.mt[this.N - 1]&this.UPPER_MASK)|(this.mt[0]&this.LOWER_MASK);
-            this.mt[this.N - 1] = this.mt[this.M - 1] ^ (y >>> 1) ^ mag01[y & 0x1];
-
-            this.mti = 0;
-        }
-
-        y = this.mt[this.mti++];
-
-        /* Tempering */
-        y ^= (y >>> 11);
-        y ^= (y << 7) & 0x9d2c5680;
-        y ^= (y << 15) & 0xefc60000;
-        y ^= (y >>> 18);
-
-        return y >>> 0;
-    };
-
-    /* generates a random number on [0,0x7fffffff]-interval */
-    MersenneTwister.prototype.genrand_int31 = function () {
-        return (this.genrand_int32() >>> 1);
-    };
-
-    /* generates a random number on [0,1]-real-interval */
-    MersenneTwister.prototype.genrand_real1 = function () {
-        return this.genrand_int32() * (1.0 / 4294967295.0);
-        /* divided by 2^32-1 */
-    };
-
-    /* generates a random number on [0,1)-real-interval */
-    MersenneTwister.prototype.random = function () {
-        return this.genrand_int32() * (1.0 / 4294967296.0);
-        /* divided by 2^32 */
-    };
-
-    /* generates a random number on (0,1)-real-interval */
-    MersenneTwister.prototype.genrand_real3 = function () {
-        return (this.genrand_int32() + 0.5) * (1.0 / 4294967296.0);
-        /* divided by 2^32 */
-    };
-
-    /* generates a random number on [0,1) with 53-bit resolution*/
-    MersenneTwister.prototype.genrand_res53 = function () {
-        var a = this.genrand_int32()>>>5, b = this.genrand_int32()>>>6;
-        return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);
-    };
-
-
-    // CommonJS module
-    if (typeof exports !== 'undefined') {
-        if (typeof module !== 'undefined' && module.exports) {
-            exports = module.exports = Chance;
-        }
-        exports.Chance = Chance;
-    }
-
-    // Register as an anonymous AMD module
-    if (typeof define === 'function' && define.amd) {
-        define([], function () {
-            return Chance;
-        });
-    }
-
-    // if there is a importsScrips object define chance for worker
-    if (typeof importScripts !== 'undefined') {
-        chance = new Chance();
-    }
-
-    // If there is a window object, that at least has a document property,
-    // instantiate and define chance on the window
-    if (typeof window === "object" && typeof window.document === "object") {
-        window.Chance = Chance;
-        window.chance = new Chance();
-    }
-})();
-
-}).call(this,require("buffer").Buffer)
-},{"buffer":6}],2:[function(require,module,exports){
 module.exports = require('./vendor/dat.gui')
 module.exports.color = require('./vendor/dat.color')
-},{"./vendor/dat.color":3,"./vendor/dat.gui":4}],3:[function(require,module,exports){
+},{"./vendor/dat.color":2,"./vendor/dat.gui":3}],2:[function(require,module,exports){
 /**
  * dat-gui JavaScript Controller Library
  * http://code.google.com/p/dat-gui
@@ -2741,7 +757,7 @@ dat.color.math = (function () {
 })(),
 dat.color.toString,
 dat.utils.common);
-},{}],4:[function(require,module,exports){
+},{}],3:[function(require,module,exports){
 /**
  * dat-gui JavaScript Controller Library
  * http://code.google.com/p/dat-gui
@@ -6402,2375 +4418,310 @@ dat.dom.CenteredDiv = (function (dom, common) {
 dat.utils.common),
 dat.dom.dom,
 dat.utils.common);
-},{}],5:[function(require,module,exports){
-/*
- * A speed-improved simplex noise algorithm for 2D, 3D and 4D in JavaScript.
- *
- * Based on example code by Stefan Gustavson (stegu@itn.liu.se).
- * Optimisations by Peter Eastman (peastman@drizzle.stanford.edu).
- * Better rank ordering method by Stefan Gustavson in 2012.
- *
- * This code was placed in the public domain by its original author,
- * Stefan Gustavson. You may use it as you see fit, but
- * attribution is appreciated.
- */
+},{}],4:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-function FastSimplexNoise(options) {
-  if (!options) options = {};
-
-  this.amplitude   = options.amplitude || 1.0;
-  this.frequency   = options.frequency || 1.0;
-  this.octaves     = parseInt(options.octaves || 1);
-  this.persistence = options.persistence || 0.5;
-  this.random      = options.random || Math.random;
-
-  var i;
-  var p = new Uint8Array(256);
-  for (i = 0; i < 256; i++) {
-    p[i] = i;
-  }
-
-  var n, q;
-  for (i = 255; i > 0; i--) {
-    n = Math.floor((i + 1) * this.random());
-    q = p[i];
-    p[i] = p[n];
-    p[n] = q;
-  }
-
-  // To remove the need for index wrapping, double the permutation table length
-  this.perm = new Uint8Array(512);
-  this.permMod12 = new Uint8Array(512);
-  for (i = 0; i < 512; i++) {
-    this.perm[i] = p[i & 255];
-    this.permMod12[i] = this.perm[i] % 12;
-  }
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
 }
+module.exports = EventEmitter;
 
-FastSimplexNoise.G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
-FastSimplexNoise.G3 = 1.0 / 6.0;
-FastSimplexNoise.G4 = (5.0 - Math.sqrt(5.0)) / 20.0;
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
 
-FastSimplexNoise.GRADIENTS_3D = [
-  [ 1, 1, 0], [-1, 1, 0], [ 1,-1, 0], [-1,-1, 0],
-  [ 1, 0, 1], [-1, 0, 1], [ 1, 0,-1], [-1, 0,-1],
-  [ 0, 1, 1], [ 0,-1,-1], [ 0, 1,-1], [ 0,-1,-1]
-];
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
 
-FastSimplexNoise.GRADIENTS_4D = [
-  [ 0, 1, 1, 1], [ 0, 1, 1,-1], [ 0, 1,-1, 1], [ 0, 1,-1,-1],
-  [ 0,-1, 1, 1], [ 0,-1, 1,-1], [ 0,-1,-1, 1], [ 0,-1,-1,-1],
-  [ 1, 0, 1, 1], [ 1, 0, 1,-1], [ 1, 0,-1, 1], [ 1, 0,-1,-1],
-  [-1, 0, 1, 1], [-1, 0, 1,-1], [-1, 0,-1, 1], [-1, 0,-1,-1],
-  [ 1, 1, 0, 1], [ 1, 1, 0,-1], [ 1,-1, 0, 1], [ 1,-1, 0,-1],
-  [-1, 1, 0, 1], [-1, 1, 0,-1], [-1,-1, 0, 1], [-1,-1, 0,-1],
-  [ 1, 1, 1, 0], [ 1, 1,-1, 0], [ 1,-1, 1, 0], [ 1,-1,-1, 0],
-  [-1, 1, 1, 0], [-1, 1,-1, 0], [-1,-1, 1, 0], [-1,-1,-1, 0]
-];
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
 
-FastSimplexNoise.dot2D = function (g, x, y) {
-  return g[0] * x + g[1] * y;
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
 };
 
-FastSimplexNoise.dot3D = function (g, x, y, z) {
-  return g[0] * x + g[1] * y + g[2] * z;
-};
-
-FastSimplexNoise.dot4D = function (g, x, y, z, w) {
-  return g[0] * x + g[1] * y + g[2] * z + g[3] * w;
-};
-
-FastSimplexNoise.prototype.get2DNoise = function (x, y) {
-  var amplitude = this.amplitude;
-  var frequency = this.frequency;
-  var maxAmplitude = 0;
-  var noise = 0;
-  var persistence = this.persistence;
-
-  for (var i = 0; i < this.octaves; i++) {
-    noise += this.getRaw2DNoise(x * frequency, y * frequency) * amplitude;
-    maxAmplitude += amplitude;
-    amplitude *= persistence;
-    frequency *= 2;
-  }
-
-  return noise / maxAmplitude;
-};
-
-FastSimplexNoise.prototype.get3DNoise = function (x, y, z) {
-  var amplitude = this.amplitude;
-  var frequency = this.frequency;
-  var maxAmplitude = 0;
-  var noise = 0;
-  var persistence = this.persistence;
-
-  for (var i = 0; i < this.octaves; i++) {
-    noise += this.getRaw3DNoise(x * frequency, y * frequency, z * frequency) * amplitude;
-    maxAmplitude += amplitude;
-    amplitude *= persistence;
-    frequency *= 2;
-  }
-
-  return noise / maxAmplitude;
-};
-
-FastSimplexNoise.prototype.get4DNoise = function (x, y, z, w) {
-  var amplitude = this.amplitude;
-  var frequency = this.frequency;
-  var maxAmplitude = 0;
-  var noise = 0;
-  var persistence = this.persistence;
-
-  for (var i = 0; i < this.octaves; i++) {
-    noise += this.getRaw4DNoise(x * frequency, y * frequency, z * frequency, w * frequency) * amplitude;
-    maxAmplitude += amplitude;
-    amplitude *= persistence;
-    frequency *= 2;
-  }
-
-  return noise / maxAmplitude;
-};
-
-FastSimplexNoise.prototype.getCylindrical2DNoise = function (c, x, y) {
-  var nx = x / c;
-  var r = c / (2 * Math.PI);
-  var rdx = nx * 2 * Math.PI;
-  var a = r * Math.sin(rdx);
-  var b = r * Math.cos(rdx);
-
-  return this.get3DNoise(a, b, y);
-};
-
-FastSimplexNoise.prototype.getCylindrical3DNoise = function (c, x, y, z) {
-  var nx = x / c;
-  var r = c / (2 * Math.PI);
-  var rdx = nx * 2 * Math.PI;
-  var a = r * Math.sin(rdx);
-  var b = r * Math.cos(rdx);
-
-  return this.get4DNoise(a, b, y, z);
-};
-
-FastSimplexNoise.prototype.getRaw2DNoise = function (x, y) {
-  var G2        = FastSimplexNoise.G2;
-  var dot2      = FastSimplexNoise.dot2D;
-  var grad3     = FastSimplexNoise.GRADIENTS_3D;
-  var perm      = this.perm;
-  var permMod12 = this.permMod12;
-
-  var n0, n1, n2; // Noise contributions from the three corners
-
-  // Skew the input space to determine which simplex cell we're in
-  var s = (x + y) * 0.5 * (Math.sqrt(3.0) - 1.0); // Hairy factor for 2D
-  var i = Math.floor(x + s);
-  var j = Math.floor(y + s);
-  var t = (i + j) * G2;
-  var X0 = i - t; // Unskew the cell origin back to (x,y) space
-  var Y0 = j - t;
-  var x0 = x - X0; // The x,y distances from the cell origin
-  var y0 = y - Y0;
-
-  // For the 2D case, the simplex shape is an equilateral triangle.
-  // Determine which simplex we are in.
-  var i1, j1; // Offsets for second (middle) corner of simplex in (i,j) coords
-  if (x0 > y0) { // Lower triangle, XY order: (0,0)->(1,0)->(1,1)
-    i1 = 1;
-    j1 = 0;
-  } else { // Upper triangle, YX order: (0,0)->(0,1)->(1,1)
-    i1 = 0;
-    j1 = 1;
-  }
-
-  // A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
-  // a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
-  // c = (3 - sqrt(3)) / 6
-
-  var x1 = x0 - i1 + G2; // Offsets for middle corner in (x,y) unskewed coords
-  var y1 = y0 - j1 + G2;
-  var x2 = x0 - 1.0 + 2.0 * G2; // Offsets for last corner in (x,y) unskewed coords
-  var y2 = y0 - 1.0 + 2.0 * G2;
-
-  // Work out the hashed gradient indices of the three simplex corners
-  var ii = i & 255;
-  var jj = j & 255;
-  var gi0 = permMod12[ii + perm[jj]];
-  var gi1 = permMod12[ii + i1 + perm[jj + j1]];
-  var gi2 = permMod12[ii + 1 + perm[jj + 1]];
-
-  // Calculate the contribution from the three corners
-  var t0 = 0.5 - x0 * x0 - y0 * y0;
-  if (t0 < 0) {
-    n0 = 0.0;
-  } else {
-    t0 *= t0;
-    // (x,y) of 3D gradient used for 2D gradient
-    n0 = t0 * t0 * dot2(grad3[gi0], x0, y0);
-  }
-  var t1 = 0.5 - x1 * x1 - y1 * y1;
-  if (t1 < 0) {
-    n1 = 0.0;
-  } else {
-    t1 *= t1;
-    n1 = t1 * t1 * dot2(grad3[gi1], x1, y1);
-  }
-  var t2 = 0.5 - x2 * x2 - y2 * y2;
-  if (t2 < 0) {
-    n2 = 0.0;
-  } else {
-    t2 *= t2;
-    n2 = t2 * t2 * dot2(grad3[gi2], x2, y2);
-  }
-
-  // Add contributions from each corner to get the final noise value.
-  // The result is scaled to return values in the interval [-1, 1];
-  return 70.1 * (n0 + n1 + n2);
-};
-
-FastSimplexNoise.prototype.getRaw3DNoise = function (x, y, z) {
-  var dot3      = FastSimplexNoise.dot3D;
-  var grad3     = FastSimplexNoise.GRADIENTS_3D;
-  var G3        = FastSimplexNoise.G3;
-  var perm      = this.perm;
-  var permMod12 = this.permMod12;
-
-  var n0, n1, n2, n3; // Noise contributions from the four corners
-
-  // Skew the input space to determine which simplex cell we're in
-  var s = (x + y + z) / 3.0; // Very nice and simple skew factor for 3D
-  var i = Math.floor(x + s);
-  var j = Math.floor(y + s);
-  var k = Math.floor(z + s);
-  var t = (i + j + k) * G3;
-  var X0 = i - t; // Unskew the cell origin back to (x,y,z) space
-  var Y0 = j - t;
-  var Z0 = k - t;
-  var x0 = x - X0; // The x,y,z distances from the cell origin
-  var y0 = y - Y0;
-  var z0 = z - Z0;
-
-  // For the 3D case, the simplex shape is a slightly irregular tetrahedron.
-  // Determine which simplex we are in.
-  var i1, j1, k1; // Offsets for second corner of simplex in (i,j,k) coords
-  var i2, j2, k2; // Offsets for third corner of simplex in (i,j,k) coords
-  if (x0 >= y0) {
-    if( y0 >= z0) { // X Y Z order
-      i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0;
-    } else if (x0 >= z0) { // X Z Y order
-      i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1;
-    } else { // Z X Y order
-      i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1;
-    }
-  } else { // x0 < y0
-    if (y0 < z0) { // Z Y X order
-      i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1;
-    } else if (x0 < z0) { // Y Z X order
-      i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1;
-    } else { // Y X Z order
-      i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0;
-    }
-  }
-
-  // A step of (1,0,0) in (i,j,k) means a step of (1-c,-c,-c) in (x,y,z),
-  // a step of (0,1,0) in (i,j,k) means a step of (-c,1-c,-c) in (x,y,z), and
-  // a step of (0,0,1) in (i,j,k) means a step of (-c,-c,1-c) in (x,y,z), where
-  // c = 1/6.
-  var x1 = x0 - i1 + G3; // Offsets for second corner in (x,y,z) coords
-  var y1 = y0 - j1 + G3;
-  var z1 = z0 - k1 + G3;
-  var x2 = x0 - i2 + 2.0 * G3; // Offsets for third corner in (x,y,z) coords
-  var y2 = y0 - j2 + 2.0 * G3;
-  var z2 = z0 - k2 + 2.0 * G3;
-  var x3 = x0 - 1.0 + 3.0 * G3; // Offsets for last corner in (x,y,z) coords
-  var y3 = y0 - 1.0 + 3.0 * G3;
-  var z3 = z0 - 1.0 + 3.0 * G3;
-
-  // Work out the hashed gradient indices of the four simplex corners
-  var ii = i & 255;
-  var jj = j & 255;
-  var kk = k & 255;
-  var gi0 = permMod12[ii + perm[jj + perm[kk]]];
-  var gi1 = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]];
-  var gi2 = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]];
-  var gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]];
-
-  // Calculate the contribution from the four corners
-  var t0 = 0.5 - x0 * x0 - y0 * y0 - z0 * z0;
-  if (t0 < 0) {
-    n0 = 0.0;
-  } else {
-    t0 *= t0;
-    n0 = t0 * t0 * dot3(grad3[gi0], x0, y0, z0);
-  }
-  var t1 = 0.5 - x1 * x1 - y1 * y1 - z1 * z1;
-  if (t1 < 0) {
-    n1 = 0.0;
-  } else {
-    t1 *= t1;
-    n1 = t1 * t1 * dot3(grad3[gi1], x1, y1, z1);
-  }
-  var t2 = 0.5 - x2 * x2 - y2 * y2 - z2 * z2;
-  if (t2 < 0) {
-    n2 = 0.0;
-  } else {
-    t2 *= t2;
-    n2 = t2 * t2 * dot3(grad3[gi2], x2, y2, z2);
-  }
-  var t3 = 0.5 - x3 * x3 - y3 * y3 - z3 * z3;
-  if (t3 < 0) {
-    n3 = 0.0;
-  } else {
-    t3 *= t3;
-    n3 = t3 * t3 * dot3(grad3[gi3], x3, y3, z3);
-  }
-
-  // Add contributions from each corner to get the final noise value.
-  // The result is scaled to stay just inside [-1,1]
-  return 94.6 * (n0 + n1 + n2 + n3);
-};
-
-FastSimplexNoise.prototype.getRaw4DNoise = function (x, y, z, w) {
-  var dot4      = FastSimplexNoise.dot4D;
-  var grad4     = FastSimplexNoise.GRADIENTS_4D;
-  var G4        = FastSimplexNoise.G4;
-  var perm      = this.perm;
-  var permMod12 = this.permMod12;
-
-  var n0, n1, n2, n3, n4; // Noise contributions from the five corners
-
-  // Skew the (x,y,z,w) space to determine which cell of 24 simplices we're in
-  var s = (x + y + z + w) * (Math.sqrt(5.0) - 1.0) / 4.0; // Factor for 4D skewing
-  var i = Math.floor(x + s);
-  var j = Math.floor(y + s);
-  var k = Math.floor(z + s);
-  var l = Math.floor(w + s);
-  var t = (i + j + k + l) * G4; // Factor for 4D unskewing
-  var X0 = i - t; // Unskew the cell origin back to (x,y,z,w) space
-  var Y0 = j - t;
-  var Z0 = k - t;
-  var W0 = l - t;
-  var x0 = x - X0;  // The x,y,z,w distances from the cell origin
-  var y0 = y - Y0;
-  var z0 = z - Z0;
-  var w0 = w - W0;
-
-  // For the 4D case, the simplex is a 4D shape I won't even try to describe.
-  // To find out which of the 24 possible simplices we're in, we need to
-  // determine the magnitude ordering of x0, y0, z0 and w0.
-  // Six pair-wise comparisons are performed between each possible pair
-  // of the four coordinates, and the results are used to rank the numbers.
-  var rankx = 0;
-  var ranky = 0;
-  var rankz = 0;
-  var rankw = 0;
-  if (x0 > y0) {
-    rankx++;
-  } else {
-    ranky++;
-  }
-  if (x0 > z0) {
-    rankx++;
-  } else {
-    rankz++;
-  }
-  if (x0 > w0) {
-    rankx++;
-  } else {
-    rankw++;
-  }
-  if (y0 > z0) {
-    ranky++;
-  } else {
-    rankz++;
-  }
-  if (y0 > w0) {
-    ranky++;
-  } else {
-    rankw++;
-  }
-  if (z0 > w0) {
-    rankz++;
-  } else {
-    rankw++;
-  }
-  var i1, j1, k1, l1; // The integer offsets for the second simplex corner
-  var i2, j2, k2, l2; // The integer offsets for the third simplex corner
-  var i3, j3, k3, l3; // The integer offsets for the fourth simplex corner
-
-  // simplex[c] is a 4-vector with the numbers 0, 1, 2 and 3 in some order.
-  // Many values of c will never occur, since e.g. x>y>z>w makes x<z, y<w and x<w
-  // impossible. Only the 24 indices which have non-zero entries make any sense.
-  // We use a thresholding to set the coordinates in turn from the largest magnitude.
-  // Rank 3 denotes the largest coordinate.
-  i1 = rankx >= 3 ? 1 : 0;
-  j1 = ranky >= 3 ? 1 : 0;
-  k1 = rankz >= 3 ? 1 : 0;
-  l1 = rankw >= 3 ? 1 : 0;
-  // Rank 2 denotes the second largest coordinate.
-  i2 = rankx >= 2 ? 1 : 0;
-  j2 = ranky >= 2 ? 1 : 0;
-  k2 = rankz >= 2 ? 1 : 0;
-  l2 = rankw >= 2 ? 1 : 0;
-  // Rank 1 denotes the second smallest coordinate.
-  i3 = rankx >= 1 ? 1 : 0;
-  j3 = ranky >= 1 ? 1 : 0;
-  k3 = rankz >= 1 ? 1 : 0;
-  l3 = rankw >= 1 ? 1 : 0;
-
-  // The fifth corner has all coordinate offsets = 1, so no need to compute that.
-  var x1 = x0 - i1 + G4; // Offsets for second corner in (x,y,z,w) coords
-  var y1 = y0 - j1 + G4;
-  var z1 = z0 - k1 + G4;
-  var w1 = w0 - l1 + G4;
-  var x2 = x0 - i2 + 2.0 * G4; // Offsets for third corner in (x,y,z,w) coords
-  var y2 = y0 - j2 + 2.0 * G4;
-  var z2 = z0 - k2 + 2.0 * G4;
-  var w2 = w0 - l2 + 2.0 * G4;
-  var x3 = x0 - i3 + 3.0 * G4; // Offsets for fourth corner in (x,y,z,w) coords
-  var y3 = y0 - j3 + 3.0 * G4;
-  var z3 = z0 - k3 + 3.0 * G4;
-  var w3 = w0 - l3 + 3.0 * G4;
-  var x4 = x0 - 1.0 + 4.0 * G4; // Offsets for last corner in (x,y,z,w) coords
-  var y4 = y0 - 1.0 + 4.0 * G4;
-  var z4 = z0 - 1.0 + 4.0 * G4;
-  var w4 = w0 - 1.0 + 4.0 * G4;
-
-  // Work out the hashed gradient indices of the five simplex corners
-  var ii = i & 255;
-  var jj = j & 255;
-  var kk = k & 255;
-  var ll = l & 255;
-  var gi0 = perm[ii + perm[jj + perm[kk + perm[ll]]]] % 32;
-  var gi1 = perm[ii + i1 + perm[jj + j1 + perm[kk + k1 + perm[ll + l1]]]] % 32;
-  var gi2 = perm[ii + i2 + perm[jj + j2 + perm[kk + k2 + perm[ll + l2]]]] % 32;
-  var gi3 = perm[ii + i3 + perm[jj + j3 + perm[kk + k3 + perm[ll + l3]]]] % 32;
-  var gi4 = perm[ii + 1 + perm[jj + 1 + perm[kk + 1 + perm[ll + 1]]]] % 32;
-
-  // Calculate the contribution from the five corners
-  var t0 = 0.5 - x0 * x0 - y0 * y0 - z0 * z0 - w0 * w0;
-  if (t0 < 0) {
-    n0 = 0.0;
-  } else {
-    t0 *= t0;
-    n0 = t0 * t0 * dot4(grad4[gi0], x0, y0, z0, w0);
-  }
-  var t1 = 0.5 - x1 * x1 - y1 * y1 - z1 * z1 - w1 * w1;
-  if (t1 < 0) {
-    n1 = 0.0;
-  } else {
-    t1 *= t1;
-    n1 = t1 * t1 * dot4(grad4[gi1], x1, y1, z1, w1);
-  }
-  var t2 = 0.5 - x2 * x2 - y2 * y2 - z2 * z2 - w2 * w2;
-  if (t2 < 0) {
-    n2 = 0.0;
-  } else {
-    t2 *= t2;
-    n2 = t2 * t2 * dot4(grad4[gi2], x2, y2, z2, w2);
-  }
-  var t3 = 0.5 - x3 * x3 - y3 * y3 - z3 * z3 - w3 * w3;
-  if (t3 < 0) {
-    n3 = 0.0;
-  } else {
-    t3 *= t3;
-    n3 = t3 * t3 * dot4(grad4[gi3], x3, y3, z3, w3);
-  }
-  var t4 = 0.5 - x4 * x4 - y4 * y4 - z4 * z4 - w4 * w4;
-  if (t4 < 0) {
-    n4 = 0.0;
-  } else {
-    t4 *= t4;
-    n4 = t4 * t4 * dot4(grad4[gi4], x4, y4, z4, w4);
-  }
-
-  // Sum up and scale the result to cover the range [-1,1]
-  return 72.3 * (n0 + n1 + n2 + n3 + n4);
-};
-
-FastSimplexNoise.prototype.getSpherical2DNoise = function (c, x, y) {
-  var nx = x / c;
-  var ny = y / c;
-  var rdx = nx * 2 * Math.PI;
-  var rdy = ny * Math.PI;
-  var sinY = Math.sin(rdy + Math.PI);
-  var sinRds = 2 * Math.PI;
-  var a = sinRds * Math.sin(rdx) * sinY;
-  var b = sinRds * Math.cos(rdx) * sinY;
-  var d = sinRds * Math.cos(rdy);
-
-  return this.get3DNoise(a, b, d);
-};
-
-FastSimplexNoise.prototype.getSpherical3DNoise = function (c, x, y, z) {
-  var nx = x / c;
-  var ny = y / c;
-  var rdx = nx * 2 * Math.PI;
-  var rdy = ny * Math.PI;
-  var sinY = Math.sin(rdy + Math.PI);
-  var sinRds = 2 * Math.PI;
-  var a = sinRds * Math.sin(rdx) * sinY;
-  var b = sinRds * Math.cos(rdx) * sinY;
-  var d = sinRds * Math.cos(rdy);
-
-  return this.get4DNoise(a, b, d, z);
-};
-
-// AMD module
-if (typeof define !== 'undefined' && define.amd) {
-  define(function () { return FastSimplexNoise; })
-}
-
-// Common JS
-if (typeof exports !== 'undefined') {
-  exports.FastSimplexNoise = FastSimplexNoise;
-}
-
-// NPM
-if (typeof module !== 'undefined') {
-  module.exports = FastSimplexNoise;
-}
-
-},{}],6:[function(require,module,exports){
-/*!
- * The buffer module from node.js, for the browser.
- *
- * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
- * @license  MIT
- */
-
-var base64 = require('base64-js')
-var ieee754 = require('ieee754')
-
-exports.Buffer = Buffer
-exports.SlowBuffer = Buffer
-exports.INSPECT_MAX_BYTES = 50
-Buffer.poolSize = 8192
-
-/**
- * If `Buffer._useTypedArrays`:
- *   === true    Use Uint8Array implementation (fastest)
- *   === false   Use Object implementation (compatible down to IE6)
- */
-Buffer._useTypedArrays = (function () {
-  // Detect if browser supports Typed Arrays. Supported browsers are IE 10+, Firefox 4+,
-  // Chrome 7+, Safari 5.1+, Opera 11.6+, iOS 4.2+. If the browser does not support adding
-  // properties to `Uint8Array` instances, then that's the same as no `Uint8Array` support
-  // because we need to be able to add all the node Buffer API methods. This is an issue
-  // in Firefox 4-29. Now fixed: https://bugzilla.mozilla.org/show_bug.cgi?id=695438
-  try {
-    var buf = new ArrayBuffer(0)
-    var arr = new Uint8Array(buf)
-    arr.foo = function () { return 42 }
-    return 42 === arr.foo() &&
-        typeof arr.subarray === 'function' // Chrome 9-10 lack `subarray`
-  } catch (e) {
-    return false
-  }
-})()
-
-/**
- * Class: Buffer
- * =============
- *
- * The Buffer constructor returns instances of `Uint8Array` that are augmented
- * with function properties for all the node `Buffer` API functions. We use
- * `Uint8Array` so that square bracket notation works as expected -- it returns
- * a single octet.
- *
- * By augmenting the instances, we can avoid modifying the `Uint8Array`
- * prototype.
- */
-function Buffer (subject, encoding, noZero) {
-  if (!(this instanceof Buffer))
-    return new Buffer(subject, encoding, noZero)
-
-  var type = typeof subject
-
-  // Workaround: node's base64 implementation allows for non-padded strings
-  // while base64-js does not.
-  if (encoding === 'base64' && type === 'string') {
-    subject = stringtrim(subject)
-    while (subject.length % 4 !== 0) {
-      subject = subject + '='
-    }
-  }
-
-  // Find the length
-  var length
-  if (type === 'number')
-    length = coerce(subject)
-  else if (type === 'string')
-    length = Buffer.byteLength(subject, encoding)
-  else if (type === 'object')
-    length = coerce(subject.length) // assume that object is array-like
-  else
-    throw new Error('First argument needs to be a number, array or string.')
-
-  var buf
-  if (Buffer._useTypedArrays) {
-    // Preferred: Return an augmented `Uint8Array` instance for best performance
-    buf = Buffer._augment(new Uint8Array(length))
-  } else {
-    // Fallback: Return THIS instance of Buffer (created by `new`)
-    buf = this
-    buf.length = length
-    buf._isBuffer = true
-  }
-
-  var i
-  if (Buffer._useTypedArrays && typeof subject.byteLength === 'number') {
-    // Speed optimization -- use set if we're copying from a typed array
-    buf._set(subject)
-  } else if (isArrayish(subject)) {
-    // Treat array-ish objects as a byte array
-    for (i = 0; i < length; i++) {
-      if (Buffer.isBuffer(subject))
-        buf[i] = subject.readUInt8(i)
-      else
-        buf[i] = subject[i]
-    }
-  } else if (type === 'string') {
-    buf.write(subject, 0, encoding)
-  } else if (type === 'number' && !Buffer._useTypedArrays && !noZero) {
-    for (i = 0; i < length; i++) {
-      buf[i] = 0
-    }
-  }
-
-  return buf
-}
-
-// STATIC METHODS
-// ==============
-
-Buffer.isEncoding = function (encoding) {
-  switch (String(encoding).toLowerCase()) {
-    case 'hex':
-    case 'utf8':
-    case 'utf-8':
-    case 'ascii':
-    case 'binary':
-    case 'base64':
-    case 'raw':
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      return true
-    default:
-      return false
-  }
-}
-
-Buffer.isBuffer = function (b) {
-  return !!(b !== null && b !== undefined && b._isBuffer)
-}
-
-Buffer.byteLength = function (str, encoding) {
-  var ret
-  str = str + ''
-  switch (encoding || 'utf8') {
-    case 'hex':
-      ret = str.length / 2
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = utf8ToBytes(str).length
-      break
-    case 'ascii':
-    case 'binary':
-    case 'raw':
-      ret = str.length
-      break
-    case 'base64':
-      ret = base64ToBytes(str).length
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = str.length * 2
-      break
-    default:
-      throw new Error('Unknown encoding')
-  }
-  return ret
-}
-
-Buffer.concat = function (list, totalLength) {
-  assert(isArray(list), 'Usage: Buffer.concat(list, [totalLength])\n' +
-      'list should be an Array.')
-
-  if (list.length === 0) {
-    return new Buffer(0)
-  } else if (list.length === 1) {
-    return list[0]
-  }
-
-  var i
-  if (typeof totalLength !== 'number') {
-    totalLength = 0
-    for (i = 0; i < list.length; i++) {
-      totalLength += list[i].length
-    }
-  }
-
-  var buf = new Buffer(totalLength)
-  var pos = 0
-  for (i = 0; i < list.length; i++) {
-    var item = list[i]
-    item.copy(buf, pos)
-    pos += item.length
-  }
-  return buf
-}
-
-// BUFFER INSTANCE METHODS
-// =======================
-
-function _hexWrite (buf, string, offset, length) {
-  offset = Number(offset) || 0
-  var remaining = buf.length - offset
-  if (!length) {
-    length = remaining
-  } else {
-    length = Number(length)
-    if (length > remaining) {
-      length = remaining
-    }
-  }
-
-  // must be an even number of digits
-  var strLen = string.length
-  assert(strLen % 2 === 0, 'Invalid hex string')
-
-  if (length > strLen / 2) {
-    length = strLen / 2
-  }
-  for (var i = 0; i < length; i++) {
-    var byte = parseInt(string.substr(i * 2, 2), 16)
-    assert(!isNaN(byte), 'Invalid hex string')
-    buf[offset + i] = byte
-  }
-  Buffer._charsWritten = i * 2
-  return i
-}
-
-function _utf8Write (buf, string, offset, length) {
-  var charsWritten = Buffer._charsWritten =
-    blitBuffer(utf8ToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-function _asciiWrite (buf, string, offset, length) {
-  var charsWritten = Buffer._charsWritten =
-    blitBuffer(asciiToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-function _binaryWrite (buf, string, offset, length) {
-  return _asciiWrite(buf, string, offset, length)
-}
-
-function _base64Write (buf, string, offset, length) {
-  var charsWritten = Buffer._charsWritten =
-    blitBuffer(base64ToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-function _utf16leWrite (buf, string, offset, length) {
-  var charsWritten = Buffer._charsWritten =
-    blitBuffer(utf16leToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-Buffer.prototype.write = function (string, offset, length, encoding) {
-  // Support both (string, offset, length, encoding)
-  // and the legacy (string, encoding, offset, length)
-  if (isFinite(offset)) {
-    if (!isFinite(length)) {
-      encoding = length
-      length = undefined
-    }
-  } else {  // legacy
-    var swap = encoding
-    encoding = offset
-    offset = length
-    length = swap
-  }
-
-  offset = Number(offset) || 0
-  var remaining = this.length - offset
-  if (!length) {
-    length = remaining
-  } else {
-    length = Number(length)
-    if (length > remaining) {
-      length = remaining
-    }
-  }
-  encoding = String(encoding || 'utf8').toLowerCase()
-
-  var ret
-  switch (encoding) {
-    case 'hex':
-      ret = _hexWrite(this, string, offset, length)
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = _utf8Write(this, string, offset, length)
-      break
-    case 'ascii':
-      ret = _asciiWrite(this, string, offset, length)
-      break
-    case 'binary':
-      ret = _binaryWrite(this, string, offset, length)
-      break
-    case 'base64':
-      ret = _base64Write(this, string, offset, length)
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = _utf16leWrite(this, string, offset, length)
-      break
-    default:
-      throw new Error('Unknown encoding')
-  }
-  return ret
-}
-
-Buffer.prototype.toString = function (encoding, start, end) {
-  var self = this
-
-  encoding = String(encoding || 'utf8').toLowerCase()
-  start = Number(start) || 0
-  end = (end !== undefined)
-    ? Number(end)
-    : end = self.length
-
-  // Fastpath empty strings
-  if (end === start)
-    return ''
-
-  var ret
-  switch (encoding) {
-    case 'hex':
-      ret = _hexSlice(self, start, end)
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = _utf8Slice(self, start, end)
-      break
-    case 'ascii':
-      ret = _asciiSlice(self, start, end)
-      break
-    case 'binary':
-      ret = _binarySlice(self, start, end)
-      break
-    case 'base64':
-      ret = _base64Slice(self, start, end)
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = _utf16leSlice(self, start, end)
-      break
-    default:
-      throw new Error('Unknown encoding')
-  }
-  return ret
-}
-
-Buffer.prototype.toJSON = function () {
-  return {
-    type: 'Buffer',
-    data: Array.prototype.slice.call(this._arr || this, 0)
-  }
-}
-
-// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
-Buffer.prototype.copy = function (target, target_start, start, end) {
-  var source = this
-
-  if (!start) start = 0
-  if (!end && end !== 0) end = this.length
-  if (!target_start) target_start = 0
-
-  // Copy 0 bytes; we're done
-  if (end === start) return
-  if (target.length === 0 || source.length === 0) return
-
-  // Fatal error conditions
-  assert(end >= start, 'sourceEnd < sourceStart')
-  assert(target_start >= 0 && target_start < target.length,
-      'targetStart out of bounds')
-  assert(start >= 0 && start < source.length, 'sourceStart out of bounds')
-  assert(end >= 0 && end <= source.length, 'sourceEnd out of bounds')
-
-  // Are we oob?
-  if (end > this.length)
-    end = this.length
-  if (target.length - target_start < end - start)
-    end = target.length - target_start + start
-
-  var len = end - start
-
-  if (len < 100 || !Buffer._useTypedArrays) {
-    for (var i = 0; i < len; i++)
-      target[i + target_start] = this[i + start]
-  } else {
-    target._set(this.subarray(start, start + len), target_start)
-  }
-}
-
-function _base64Slice (buf, start, end) {
-  if (start === 0 && end === buf.length) {
-    return base64.fromByteArray(buf)
-  } else {
-    return base64.fromByteArray(buf.slice(start, end))
-  }
-}
-
-function _utf8Slice (buf, start, end) {
-  var res = ''
-  var tmp = ''
-  end = Math.min(buf.length, end)
-
-  for (var i = start; i < end; i++) {
-    if (buf[i] <= 0x7F) {
-      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
-      tmp = ''
-    } else {
-      tmp += '%' + buf[i].toString(16)
-    }
-  }
-
-  return res + decodeUtf8Char(tmp)
-}
-
-function _asciiSlice (buf, start, end) {
-  var ret = ''
-  end = Math.min(buf.length, end)
-
-  for (var i = start; i < end; i++)
-    ret += String.fromCharCode(buf[i])
-  return ret
-}
-
-function _binarySlice (buf, start, end) {
-  return _asciiSlice(buf, start, end)
-}
-
-function _hexSlice (buf, start, end) {
-  var len = buf.length
-
-  if (!start || start < 0) start = 0
-  if (!end || end < 0 || end > len) end = len
-
-  var out = ''
-  for (var i = start; i < end; i++) {
-    out += toHex(buf[i])
-  }
-  return out
-}
-
-function _utf16leSlice (buf, start, end) {
-  var bytes = buf.slice(start, end)
-  var res = ''
-  for (var i = 0; i < bytes.length; i += 2) {
-    res += String.fromCharCode(bytes[i] + bytes[i+1] * 256)
-  }
-  return res
-}
-
-Buffer.prototype.slice = function (start, end) {
-  var len = this.length
-  start = clamp(start, len, 0)
-  end = clamp(end, len, len)
-
-  if (Buffer._useTypedArrays) {
-    return Buffer._augment(this.subarray(start, end))
-  } else {
-    var sliceLen = end - start
-    var newBuf = new Buffer(sliceLen, undefined, true)
-    for (var i = 0; i < sliceLen; i++) {
-      newBuf[i] = this[i + start]
-    }
-    return newBuf
-  }
-}
-
-// `get` will be removed in Node 0.13+
-Buffer.prototype.get = function (offset) {
-  console.log('.get() is deprecated. Access using array indexes instead.')
-  return this.readUInt8(offset)
-}
-
-// `set` will be removed in Node 0.13+
-Buffer.prototype.set = function (v, offset) {
-  console.log('.set() is deprecated. Access using array indexes instead.')
-  return this.writeUInt8(v, offset)
-}
-
-Buffer.prototype.readUInt8 = function (offset, noAssert) {
-  if (!noAssert) {
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset < this.length, 'Trying to read beyond buffer length')
-  }
-
-  if (offset >= this.length)
-    return
-
-  return this[offset]
-}
-
-function _readUInt16 (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  var val
-  if (littleEndian) {
-    val = buf[offset]
-    if (offset + 1 < len)
-      val |= buf[offset + 1] << 8
-  } else {
-    val = buf[offset] << 8
-    if (offset + 1 < len)
-      val |= buf[offset + 1]
-  }
-  return val
-}
-
-Buffer.prototype.readUInt16LE = function (offset, noAssert) {
-  return _readUInt16(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readUInt16BE = function (offset, noAssert) {
-  return _readUInt16(this, offset, false, noAssert)
-}
-
-function _readUInt32 (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  var val
-  if (littleEndian) {
-    if (offset + 2 < len)
-      val = buf[offset + 2] << 16
-    if (offset + 1 < len)
-      val |= buf[offset + 1] << 8
-    val |= buf[offset]
-    if (offset + 3 < len)
-      val = val + (buf[offset + 3] << 24 >>> 0)
-  } else {
-    if (offset + 1 < len)
-      val = buf[offset + 1] << 16
-    if (offset + 2 < len)
-      val |= buf[offset + 2] << 8
-    if (offset + 3 < len)
-      val |= buf[offset + 3]
-    val = val + (buf[offset] << 24 >>> 0)
-  }
-  return val
-}
-
-Buffer.prototype.readUInt32LE = function (offset, noAssert) {
-  return _readUInt32(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readUInt32BE = function (offset, noAssert) {
-  return _readUInt32(this, offset, false, noAssert)
-}
-
-Buffer.prototype.readInt8 = function (offset, noAssert) {
-  if (!noAssert) {
-    assert(offset !== undefined && offset !== null,
-        'missing offset')
-    assert(offset < this.length, 'Trying to read beyond buffer length')
-  }
-
-  if (offset >= this.length)
-    return
-
-  var neg = this[offset] & 0x80
-  if (neg)
-    return (0xff - this[offset] + 1) * -1
-  else
-    return this[offset]
-}
-
-function _readInt16 (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  var val = _readUInt16(buf, offset, littleEndian, true)
-  var neg = val & 0x8000
-  if (neg)
-    return (0xffff - val + 1) * -1
-  else
-    return val
-}
-
-Buffer.prototype.readInt16LE = function (offset, noAssert) {
-  return _readInt16(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readInt16BE = function (offset, noAssert) {
-  return _readInt16(this, offset, false, noAssert)
-}
-
-function _readInt32 (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  var val = _readUInt32(buf, offset, littleEndian, true)
-  var neg = val & 0x80000000
-  if (neg)
-    return (0xffffffff - val + 1) * -1
-  else
-    return val
-}
-
-Buffer.prototype.readInt32LE = function (offset, noAssert) {
-  return _readInt32(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readInt32BE = function (offset, noAssert) {
-  return _readInt32(this, offset, false, noAssert)
-}
-
-function _readFloat (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  return ieee754.read(buf, offset, littleEndian, 23, 4)
-}
-
-Buffer.prototype.readFloatLE = function (offset, noAssert) {
-  return _readFloat(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readFloatBE = function (offset, noAssert) {
-  return _readFloat(this, offset, false, noAssert)
-}
-
-function _readDouble (buf, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset + 7 < buf.length, 'Trying to read beyond buffer length')
-  }
-
-  return ieee754.read(buf, offset, littleEndian, 52, 8)
-}
-
-Buffer.prototype.readDoubleLE = function (offset, noAssert) {
-  return _readDouble(this, offset, true, noAssert)
-}
-
-Buffer.prototype.readDoubleBE = function (offset, noAssert) {
-  return _readDouble(this, offset, false, noAssert)
-}
-
-Buffer.prototype.writeUInt8 = function (value, offset, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset < this.length, 'trying to write beyond buffer length')
-    verifuint(value, 0xff)
-  }
-
-  if (offset >= this.length) return
-
-  this[offset] = value
-}
-
-function _writeUInt16 (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 1 < buf.length, 'trying to write beyond buffer length')
-    verifuint(value, 0xffff)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  for (var i = 0, j = Math.min(len - offset, 2); i < j; i++) {
-    buf[offset + i] =
-        (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
-            (littleEndian ? i : 1 - i) * 8
-  }
-}
-
-Buffer.prototype.writeUInt16LE = function (value, offset, noAssert) {
-  _writeUInt16(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeUInt16BE = function (value, offset, noAssert) {
-  _writeUInt16(this, value, offset, false, noAssert)
-}
-
-function _writeUInt32 (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 3 < buf.length, 'trying to write beyond buffer length')
-    verifuint(value, 0xffffffff)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  for (var i = 0, j = Math.min(len - offset, 4); i < j; i++) {
-    buf[offset + i] =
-        (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
-  }
-}
-
-Buffer.prototype.writeUInt32LE = function (value, offset, noAssert) {
-  _writeUInt32(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeUInt32BE = function (value, offset, noAssert) {
-  _writeUInt32(this, value, offset, false, noAssert)
-}
-
-Buffer.prototype.writeInt8 = function (value, offset, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset < this.length, 'Trying to write beyond buffer length')
-    verifsint(value, 0x7f, -0x80)
-  }
-
-  if (offset >= this.length)
-    return
-
-  if (value >= 0)
-    this.writeUInt8(value, offset, noAssert)
-  else
-    this.writeUInt8(0xff + value + 1, offset, noAssert)
-}
-
-function _writeInt16 (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 1 < buf.length, 'Trying to write beyond buffer length')
-    verifsint(value, 0x7fff, -0x8000)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  if (value >= 0)
-    _writeUInt16(buf, value, offset, littleEndian, noAssert)
-  else
-    _writeUInt16(buf, 0xffff + value + 1, offset, littleEndian, noAssert)
-}
-
-Buffer.prototype.writeInt16LE = function (value, offset, noAssert) {
-  _writeInt16(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeInt16BE = function (value, offset, noAssert) {
-  _writeInt16(this, value, offset, false, noAssert)
-}
-
-function _writeInt32 (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
-    verifsint(value, 0x7fffffff, -0x80000000)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  if (value >= 0)
-    _writeUInt32(buf, value, offset, littleEndian, noAssert)
-  else
-    _writeUInt32(buf, 0xffffffff + value + 1, offset, littleEndian, noAssert)
-}
-
-Buffer.prototype.writeInt32LE = function (value, offset, noAssert) {
-  _writeInt32(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeInt32BE = function (value, offset, noAssert) {
-  _writeInt32(this, value, offset, false, noAssert)
-}
-
-function _writeFloat (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
-    verifIEEE754(value, 3.4028234663852886e+38, -3.4028234663852886e+38)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  ieee754.write(buf, value, offset, littleEndian, 23, 4)
-}
-
-Buffer.prototype.writeFloatLE = function (value, offset, noAssert) {
-  _writeFloat(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeFloatBE = function (value, offset, noAssert) {
-  _writeFloat(this, value, offset, false, noAssert)
-}
-
-function _writeDouble (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    assert(value !== undefined && value !== null, 'missing value')
-    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
-    assert(offset !== undefined && offset !== null, 'missing offset')
-    assert(offset + 7 < buf.length,
-        'Trying to write beyond buffer length')
-    verifIEEE754(value, 1.7976931348623157E+308, -1.7976931348623157E+308)
-  }
-
-  var len = buf.length
-  if (offset >= len)
-    return
-
-  ieee754.write(buf, value, offset, littleEndian, 52, 8)
-}
-
-Buffer.prototype.writeDoubleLE = function (value, offset, noAssert) {
-  _writeDouble(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeDoubleBE = function (value, offset, noAssert) {
-  _writeDouble(this, value, offset, false, noAssert)
-}
-
-// fill(value, start=0, end=buffer.length)
-Buffer.prototype.fill = function (value, start, end) {
-  if (!value) value = 0
-  if (!start) start = 0
-  if (!end) end = this.length
-
-  if (typeof value === 'string') {
-    value = value.charCodeAt(0)
-  }
-
-  assert(typeof value === 'number' && !isNaN(value), 'value is not a number')
-  assert(end >= start, 'end < start')
-
-  // Fill 0 bytes; we're done
-  if (end === start) return
-  if (this.length === 0) return
-
-  assert(start >= 0 && start < this.length, 'start out of bounds')
-  assert(end >= 0 && end <= this.length, 'end out of bounds')
-
-  for (var i = start; i < end; i++) {
-    this[i] = value
-  }
-}
-
-Buffer.prototype.inspect = function () {
-  var out = []
-  var len = this.length
-  for (var i = 0; i < len; i++) {
-    out[i] = toHex(this[i])
-    if (i === exports.INSPECT_MAX_BYTES) {
-      out[i + 1] = '...'
-      break
-    }
-  }
-  return '<Buffer ' + out.join(' ') + '>'
-}
-
-/**
- * Creates a new `ArrayBuffer` with the *copied* memory of the buffer instance.
- * Added in Node 0.12. Only available in browsers that support ArrayBuffer.
- */
-Buffer.prototype.toArrayBuffer = function () {
-  if (typeof Uint8Array !== 'undefined') {
-    if (Buffer._useTypedArrays) {
-      return (new Buffer(this)).buffer
-    } else {
-      var buf = new Uint8Array(this.length)
-      for (var i = 0, len = buf.length; i < len; i += 1)
-        buf[i] = this[i]
-      return buf.buffer
-    }
-  } else {
-    throw new Error('Buffer.toArrayBuffer not supported in this browser')
-  }
-}
-
-// HELPER FUNCTIONS
-// ================
-
-function stringtrim (str) {
-  if (str.trim) return str.trim()
-  return str.replace(/^\s+|\s+$/g, '')
-}
-
-var BP = Buffer.prototype
-
-/**
- * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
- */
-Buffer._augment = function (arr) {
-  arr._isBuffer = true
-
-  // save reference to original Uint8Array get/set methods before overwriting
-  arr._get = arr.get
-  arr._set = arr.set
-
-  // deprecated, will be removed in node 0.13+
-  arr.get = BP.get
-  arr.set = BP.set
-
-  arr.write = BP.write
-  arr.toString = BP.toString
-  arr.toLocaleString = BP.toString
-  arr.toJSON = BP.toJSON
-  arr.copy = BP.copy
-  arr.slice = BP.slice
-  arr.readUInt8 = BP.readUInt8
-  arr.readUInt16LE = BP.readUInt16LE
-  arr.readUInt16BE = BP.readUInt16BE
-  arr.readUInt32LE = BP.readUInt32LE
-  arr.readUInt32BE = BP.readUInt32BE
-  arr.readInt8 = BP.readInt8
-  arr.readInt16LE = BP.readInt16LE
-  arr.readInt16BE = BP.readInt16BE
-  arr.readInt32LE = BP.readInt32LE
-  arr.readInt32BE = BP.readInt32BE
-  arr.readFloatLE = BP.readFloatLE
-  arr.readFloatBE = BP.readFloatBE
-  arr.readDoubleLE = BP.readDoubleLE
-  arr.readDoubleBE = BP.readDoubleBE
-  arr.writeUInt8 = BP.writeUInt8
-  arr.writeUInt16LE = BP.writeUInt16LE
-  arr.writeUInt16BE = BP.writeUInt16BE
-  arr.writeUInt32LE = BP.writeUInt32LE
-  arr.writeUInt32BE = BP.writeUInt32BE
-  arr.writeInt8 = BP.writeInt8
-  arr.writeInt16LE = BP.writeInt16LE
-  arr.writeInt16BE = BP.writeInt16BE
-  arr.writeInt32LE = BP.writeInt32LE
-  arr.writeInt32BE = BP.writeInt32BE
-  arr.writeFloatLE = BP.writeFloatLE
-  arr.writeFloatBE = BP.writeFloatBE
-  arr.writeDoubleLE = BP.writeDoubleLE
-  arr.writeDoubleBE = BP.writeDoubleBE
-  arr.fill = BP.fill
-  arr.inspect = BP.inspect
-  arr.toArrayBuffer = BP.toArrayBuffer
-
-  return arr
-}
-
-// slice(start, end)
-function clamp (index, len, defaultValue) {
-  if (typeof index !== 'number') return defaultValue
-  index = ~~index;  // Coerce to integer.
-  if (index >= len) return len
-  if (index >= 0) return index
-  index += len
-  if (index >= 0) return index
-  return 0
-}
-
-function coerce (length) {
-  // Coerce length to a number (possibly NaN), round up
-  // in case it's fractional (e.g. 123.456) then do a
-  // double negate to coerce a NaN to 0. Easy, right?
-  length = ~~Math.ceil(+length)
-  return length < 0 ? 0 : length
-}
-
-function isArray (subject) {
-  return (Array.isArray || function (subject) {
-    return Object.prototype.toString.call(subject) === '[object Array]'
-  })(subject)
-}
-
-function isArrayish (subject) {
-  return isArray(subject) || Buffer.isBuffer(subject) ||
-      subject && typeof subject === 'object' &&
-      typeof subject.length === 'number'
-}
-
-function toHex (n) {
-  if (n < 16) return '0' + n.toString(16)
-  return n.toString(16)
-}
-
-function utf8ToBytes (str) {
-  var byteArray = []
-  for (var i = 0; i < str.length; i++) {
-    var b = str.charCodeAt(i)
-    if (b <= 0x7F)
-      byteArray.push(str.charCodeAt(i))
-    else {
-      var start = i
-      if (b >= 0xD800 && b <= 0xDFFF) i++
-      var h = encodeURIComponent(str.slice(start, i+1)).substr(1).split('%')
-      for (var j = 0; j < h.length; j++)
-        byteArray.push(parseInt(h[j], 16))
-    }
-  }
-  return byteArray
-}
-
-function asciiToBytes (str) {
-  var byteArray = []
-  for (var i = 0; i < str.length; i++) {
-    // Node's code seems to be doing this and not & 0x7F..
-    byteArray.push(str.charCodeAt(i) & 0xFF)
-  }
-  return byteArray
-}
-
-function utf16leToBytes (str) {
-  var c, hi, lo
-  var byteArray = []
-  for (var i = 0; i < str.length; i++) {
-    c = str.charCodeAt(i)
-    hi = c >> 8
-    lo = c % 256
-    byteArray.push(lo)
-    byteArray.push(hi)
-  }
-
-  return byteArray
-}
-
-function base64ToBytes (str) {
-  return base64.toByteArray(str)
-}
-
-function blitBuffer (src, dst, offset, length) {
-  var pos
-  for (var i = 0; i < length; i++) {
-    if ((i + offset >= dst.length) || (i >= src.length))
-      break
-    dst[i + offset] = src[i]
-  }
-  return i
-}
-
-function decodeUtf8Char (str) {
-  try {
-    return decodeURIComponent(str)
-  } catch (err) {
-    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
-  }
-}
-
-/*
- * We have to make sure that the value is a valid integer. This means that it
- * is non-negative. It has no fractional component and that it does not
- * exceed the maximum allowed value.
- */
-function verifuint (value, max) {
-  assert(typeof value === 'number', 'cannot write a non-number as a number')
-  assert(value >= 0, 'specified a negative value for writing an unsigned value')
-  assert(value <= max, 'value is larger than maximum value for type')
-  assert(Math.floor(value) === value, 'value has a fractional component')
-}
-
-function verifsint (value, max, min) {
-  assert(typeof value === 'number', 'cannot write a non-number as a number')
-  assert(value <= max, 'value larger than maximum allowed value')
-  assert(value >= min, 'value smaller than minimum allowed value')
-  assert(Math.floor(value) === value, 'value has a fractional component')
-}
-
-function verifIEEE754 (value, max, min) {
-  assert(typeof value === 'number', 'cannot write a non-number as a number')
-  assert(value <= max, 'value larger than maximum allowed value')
-  assert(value >= min, 'value smaller than minimum allowed value')
-}
-
-function assert (test, message) {
-  if (!test) throw new Error(message || 'Failed assertion')
-}
-
-},{"base64-js":7,"ieee754":8}],7:[function(require,module,exports){
-var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-;(function (exports) {
-	'use strict';
-
-  var Arr = (typeof Uint8Array !== 'undefined')
-    ? Uint8Array
-    : Array
-
-	var PLUS   = '+'.charCodeAt(0)
-	var SLASH  = '/'.charCodeAt(0)
-	var NUMBER = '0'.charCodeAt(0)
-	var LOWER  = 'a'.charCodeAt(0)
-	var UPPER  = 'A'.charCodeAt(0)
-	var PLUS_URL_SAFE = '-'.charCodeAt(0)
-	var SLASH_URL_SAFE = '_'.charCodeAt(0)
-
-	function decode (elt) {
-		var code = elt.charCodeAt(0)
-		if (code === PLUS ||
-		    code === PLUS_URL_SAFE)
-			return 62 // '+'
-		if (code === SLASH ||
-		    code === SLASH_URL_SAFE)
-			return 63 // '/'
-		if (code < NUMBER)
-			return -1 //no match
-		if (code < NUMBER + 10)
-			return code - NUMBER + 26 + 26
-		if (code < UPPER + 26)
-			return code - UPPER
-		if (code < LOWER + 26)
-			return code - LOWER + 26
-	}
-
-	function b64ToByteArray (b64) {
-		var i, j, l, tmp, placeHolders, arr
-
-		if (b64.length % 4 > 0) {
-			throw new Error('Invalid string. Length must be a multiple of 4')
-		}
-
-		// the number of equal signs (place holders)
-		// if there are two placeholders, than the two characters before it
-		// represent one byte
-		// if there is only one, then the three characters before it represent 2 bytes
-		// this is just a cheap hack to not do indexOf twice
-		var len = b64.length
-		placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
-
-		// base64 is 4/3 + up to two characters of the original data
-		arr = new Arr(b64.length * 3 / 4 - placeHolders)
-
-		// if there are placeholders, only get up to the last complete 4 chars
-		l = placeHolders > 0 ? b64.length - 4 : b64.length
-
-		var L = 0
-
-		function push (v) {
-			arr[L++] = v
-		}
-
-		for (i = 0, j = 0; i < l; i += 4, j += 3) {
-			tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
-			push((tmp & 0xFF0000) >> 16)
-			push((tmp & 0xFF00) >> 8)
-			push(tmp & 0xFF)
-		}
-
-		if (placeHolders === 2) {
-			tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
-			push(tmp & 0xFF)
-		} else if (placeHolders === 1) {
-			tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
-			push((tmp >> 8) & 0xFF)
-			push(tmp & 0xFF)
-		}
-
-		return arr
-	}
-
-	function uint8ToBase64 (uint8) {
-		var i,
-			extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
-			output = "",
-			temp, length
-
-		function encode (num) {
-			return lookup.charAt(num)
-		}
-
-		function tripletToBase64 (num) {
-			return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
-		}
-
-		// go through the array every three bytes, we'll deal with trailing stuff later
-		for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
-			temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
-			output += tripletToBase64(temp)
-		}
-
-		// pad the end with zeros, but make sure to not forget the extra bytes
-		switch (extraBytes) {
-			case 1:
-				temp = uint8[uint8.length - 1]
-				output += encode(temp >> 2)
-				output += encode((temp << 4) & 0x3F)
-				output += '=='
-				break
-			case 2:
-				temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
-				output += encode(temp >> 10)
-				output += encode((temp >> 4) & 0x3F)
-				output += encode((temp << 2) & 0x3F)
-				output += '='
-				break
-		}
-
-		return output
-	}
-
-	exports.toByteArray = b64ToByteArray
-	exports.fromByteArray = uint8ToBase64
-}(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
-
-},{}],8:[function(require,module,exports){
-exports.read = function(buffer, offset, isLE, mLen, nBytes) {
-  var e, m,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      nBits = -7,
-      i = isLE ? (nBytes - 1) : 0,
-      d = isLE ? -1 : 1,
-      s = buffer[offset + i];
-
-  i += d;
-
-  e = s & ((1 << (-nBits)) - 1);
-  s >>= (-nBits);
-  nBits += eLen;
-  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-  m = e & ((1 << (-nBits)) - 1);
-  e >>= (-nBits);
-  nBits += mLen;
-  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-  if (e === 0) {
-    e = 1 - eBias;
-  } else if (e === eMax) {
-    return m ? NaN : ((s ? -1 : 1) * Infinity);
-  } else {
-    m = m + Math.pow(2, mLen);
-    e = e - eBias;
-  }
-  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
-};
-
-exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
-      i = isLE ? 0 : (nBytes - 1),
-      d = isLE ? 1 : -1,
-      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
-
-  value = Math.abs(value);
-
-  if (isNaN(value) || value === Infinity) {
-    m = isNaN(value) ? 1 : 0;
-    e = eMax;
-  } else {
-    e = Math.floor(Math.log(value) / Math.LN2);
-    if (value * (c = Math.pow(2, -e)) < 1) {
-      e--;
-      c *= 2;
-    }
-    if (e + eBias >= 1) {
-      value += rt / c;
-    } else {
-      value += rt * Math.pow(2, 1 - eBias);
-    }
-    if (value * c >= 2) {
-      e++;
-      c /= 2;
-    }
-
-    if (e + eBias >= eMax) {
-      m = 0;
-      e = eMax;
-    } else if (e + eBias >= 1) {
-      m = (value * c - 1) * Math.pow(2, mLen);
-      e = e + eBias;
-    } else {
-      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
-      e = 0;
-    }
-  }
-
-  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
-
-  e = (e << mLen) | m;
-  eLen += mLen;
-  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
-
-  buffer[offset + i - d] |= s * 128;
-};
-
-},{}],9:[function(require,module,exports){
-var Buffer = require('buffer').Buffer;
-var intSize = 4;
-var zeroBuffer = new Buffer(intSize); zeroBuffer.fill(0);
-var chrsz = 8;
-
-function toArray(buf, bigEndian) {
-  if ((buf.length % intSize) !== 0) {
-    var len = buf.length + (intSize - (buf.length % intSize));
-    buf = Buffer.concat([buf, zeroBuffer], len);
-  }
-
-  var arr = [];
-  var fn = bigEndian ? buf.readInt32BE : buf.readInt32LE;
-  for (var i = 0; i < buf.length; i += intSize) {
-    arr.push(fn.call(buf, i));
-  }
-  return arr;
-}
-
-function toBuffer(arr, size, bigEndian) {
-  var buf = new Buffer(size);
-  var fn = bigEndian ? buf.writeInt32BE : buf.writeInt32LE;
-  for (var i = 0; i < arr.length; i++) {
-    fn.call(buf, arr[i], i * 4, true);
-  }
-  return buf;
-}
-
-function hash(buf, fn, hashSize, bigEndian) {
-  if (!Buffer.isBuffer(buf)) buf = new Buffer(buf);
-  var arr = fn(toArray(buf, bigEndian), buf.length * chrsz);
-  return toBuffer(arr, hashSize, bigEndian);
-}
-
-module.exports = { hash: hash };
-
-},{"buffer":6}],10:[function(require,module,exports){
-var Buffer = require('buffer').Buffer
-var sha = require('./sha')
-var sha256 = require('./sha256')
-var rng = require('./rng')
-var md5 = require('./md5')
-
-var algorithms = {
-  sha1: sha,
-  sha256: sha256,
-  md5: md5
-}
-
-var blocksize = 64
-var zeroBuffer = new Buffer(blocksize); zeroBuffer.fill(0)
-function hmac(fn, key, data) {
-  if(!Buffer.isBuffer(key)) key = new Buffer(key)
-  if(!Buffer.isBuffer(data)) data = new Buffer(data)
-
-  if(key.length > blocksize) {
-    key = fn(key)
-  } else if(key.length < blocksize) {
-    key = Buffer.concat([key, zeroBuffer], blocksize)
-  }
-
-  var ipad = new Buffer(blocksize), opad = new Buffer(blocksize)
-  for(var i = 0; i < blocksize; i++) {
-    ipad[i] = key[i] ^ 0x36
-    opad[i] = key[i] ^ 0x5C
-  }
-
-  var hash = fn(Buffer.concat([ipad, data]))
-  return fn(Buffer.concat([opad, hash]))
-}
-
-function hash(alg, key) {
-  alg = alg || 'sha1'
-  var fn = algorithms[alg]
-  var bufs = []
-  var length = 0
-  if(!fn) error('algorithm:', alg, 'is not yet supported')
-  return {
-    update: function (data) {
-      if(!Buffer.isBuffer(data)) data = new Buffer(data)
-        
-      bufs.push(data)
-      length += data.length
-      return this
-    },
-    digest: function (enc) {
-      var buf = Buffer.concat(bufs)
-      var r = key ? hmac(fn, key, buf) : fn(buf)
-      bufs = null
-      return enc ? r.toString(enc) : r
-    }
-  }
-}
-
-function error () {
-  var m = [].slice.call(arguments).join(' ')
-  throw new Error([
-    m,
-    'we accept pull requests',
-    'http://github.com/dominictarr/crypto-browserify'
-    ].join('\n'))
-}
-
-exports.createHash = function (alg) { return hash(alg) }
-exports.createHmac = function (alg, key) { return hash(alg, key) }
-exports.randomBytes = function(size, callback) {
-  if (callback && callback.call) {
-    try {
-      callback.call(this, undefined, new Buffer(rng(size)))
-    } catch (err) { callback(err) }
-  } else {
-    return new Buffer(rng(size))
-  }
-}
-
-function each(a, f) {
-  for(var i in a)
-    f(a[i], i)
-}
-
-// the least I can do is make error messages for the rest of the node.js/crypto api.
-each(['createCredentials'
-, 'createCipher'
-, 'createCipheriv'
-, 'createDecipher'
-, 'createDecipheriv'
-, 'createSign'
-, 'createVerify'
-, 'createDiffieHellman'
-, 'pbkdf2'], function (name) {
-  exports[name] = function () {
-    error('sorry,', name, 'is not implemented yet')
-  }
-})
-
-},{"./md5":11,"./rng":12,"./sha":13,"./sha256":14,"buffer":6}],11:[function(require,module,exports){
-/*
- * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
- * Digest Algorithm, as defined in RFC 1321.
- * Version 2.1 Copyright (C) Paul Johnston 1999 - 2002.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- * Distributed under the BSD License
- * See http://pajhome.org.uk/crypt/md5 for more info.
- */
-
-var helpers = require('./helpers');
-
-/*
- * Perform a simple self-test to see if the VM is working
- */
-function md5_vm_test()
-{
-  return hex_md5("abc") == "900150983cd24fb0d6963f7d28e17f72";
-}
-
-/*
- * Calculate the MD5 of an array of little-endian words, and a bit length
- */
-function core_md5(x, len)
-{
-  /* append padding */
-  x[len >> 5] |= 0x80 << ((len) % 32);
-  x[(((len + 64) >>> 9) << 4) + 14] = len;
-
-  var a =  1732584193;
-  var b = -271733879;
-  var c = -1732584194;
-  var d =  271733878;
-
-  for(var i = 0; i < x.length; i += 16)
-  {
-    var olda = a;
-    var oldb = b;
-    var oldc = c;
-    var oldd = d;
-
-    a = md5_ff(a, b, c, d, x[i+ 0], 7 , -680876936);
-    d = md5_ff(d, a, b, c, x[i+ 1], 12, -389564586);
-    c = md5_ff(c, d, a, b, x[i+ 2], 17,  606105819);
-    b = md5_ff(b, c, d, a, x[i+ 3], 22, -1044525330);
-    a = md5_ff(a, b, c, d, x[i+ 4], 7 , -176418897);
-    d = md5_ff(d, a, b, c, x[i+ 5], 12,  1200080426);
-    c = md5_ff(c, d, a, b, x[i+ 6], 17, -1473231341);
-    b = md5_ff(b, c, d, a, x[i+ 7], 22, -45705983);
-    a = md5_ff(a, b, c, d, x[i+ 8], 7 ,  1770035416);
-    d = md5_ff(d, a, b, c, x[i+ 9], 12, -1958414417);
-    c = md5_ff(c, d, a, b, x[i+10], 17, -42063);
-    b = md5_ff(b, c, d, a, x[i+11], 22, -1990404162);
-    a = md5_ff(a, b, c, d, x[i+12], 7 ,  1804603682);
-    d = md5_ff(d, a, b, c, x[i+13], 12, -40341101);
-    c = md5_ff(c, d, a, b, x[i+14], 17, -1502002290);
-    b = md5_ff(b, c, d, a, x[i+15], 22,  1236535329);
-
-    a = md5_gg(a, b, c, d, x[i+ 1], 5 , -165796510);
-    d = md5_gg(d, a, b, c, x[i+ 6], 9 , -1069501632);
-    c = md5_gg(c, d, a, b, x[i+11], 14,  643717713);
-    b = md5_gg(b, c, d, a, x[i+ 0], 20, -373897302);
-    a = md5_gg(a, b, c, d, x[i+ 5], 5 , -701558691);
-    d = md5_gg(d, a, b, c, x[i+10], 9 ,  38016083);
-    c = md5_gg(c, d, a, b, x[i+15], 14, -660478335);
-    b = md5_gg(b, c, d, a, x[i+ 4], 20, -405537848);
-    a = md5_gg(a, b, c, d, x[i+ 9], 5 ,  568446438);
-    d = md5_gg(d, a, b, c, x[i+14], 9 , -1019803690);
-    c = md5_gg(c, d, a, b, x[i+ 3], 14, -187363961);
-    b = md5_gg(b, c, d, a, x[i+ 8], 20,  1163531501);
-    a = md5_gg(a, b, c, d, x[i+13], 5 , -1444681467);
-    d = md5_gg(d, a, b, c, x[i+ 2], 9 , -51403784);
-    c = md5_gg(c, d, a, b, x[i+ 7], 14,  1735328473);
-    b = md5_gg(b, c, d, a, x[i+12], 20, -1926607734);
-
-    a = md5_hh(a, b, c, d, x[i+ 5], 4 , -378558);
-    d = md5_hh(d, a, b, c, x[i+ 8], 11, -2022574463);
-    c = md5_hh(c, d, a, b, x[i+11], 16,  1839030562);
-    b = md5_hh(b, c, d, a, x[i+14], 23, -35309556);
-    a = md5_hh(a, b, c, d, x[i+ 1], 4 , -1530992060);
-    d = md5_hh(d, a, b, c, x[i+ 4], 11,  1272893353);
-    c = md5_hh(c, d, a, b, x[i+ 7], 16, -155497632);
-    b = md5_hh(b, c, d, a, x[i+10], 23, -1094730640);
-    a = md5_hh(a, b, c, d, x[i+13], 4 ,  681279174);
-    d = md5_hh(d, a, b, c, x[i+ 0], 11, -358537222);
-    c = md5_hh(c, d, a, b, x[i+ 3], 16, -722521979);
-    b = md5_hh(b, c, d, a, x[i+ 6], 23,  76029189);
-    a = md5_hh(a, b, c, d, x[i+ 9], 4 , -640364487);
-    d = md5_hh(d, a, b, c, x[i+12], 11, -421815835);
-    c = md5_hh(c, d, a, b, x[i+15], 16,  530742520);
-    b = md5_hh(b, c, d, a, x[i+ 2], 23, -995338651);
-
-    a = md5_ii(a, b, c, d, x[i+ 0], 6 , -198630844);
-    d = md5_ii(d, a, b, c, x[i+ 7], 10,  1126891415);
-    c = md5_ii(c, d, a, b, x[i+14], 15, -1416354905);
-    b = md5_ii(b, c, d, a, x[i+ 5], 21, -57434055);
-    a = md5_ii(a, b, c, d, x[i+12], 6 ,  1700485571);
-    d = md5_ii(d, a, b, c, x[i+ 3], 10, -1894986606);
-    c = md5_ii(c, d, a, b, x[i+10], 15, -1051523);
-    b = md5_ii(b, c, d, a, x[i+ 1], 21, -2054922799);
-    a = md5_ii(a, b, c, d, x[i+ 8], 6 ,  1873313359);
-    d = md5_ii(d, a, b, c, x[i+15], 10, -30611744);
-    c = md5_ii(c, d, a, b, x[i+ 6], 15, -1560198380);
-    b = md5_ii(b, c, d, a, x[i+13], 21,  1309151649);
-    a = md5_ii(a, b, c, d, x[i+ 4], 6 , -145523070);
-    d = md5_ii(d, a, b, c, x[i+11], 10, -1120210379);
-    c = md5_ii(c, d, a, b, x[i+ 2], 15,  718787259);
-    b = md5_ii(b, c, d, a, x[i+ 9], 21, -343485551);
-
-    a = safe_add(a, olda);
-    b = safe_add(b, oldb);
-    c = safe_add(c, oldc);
-    d = safe_add(d, oldd);
-  }
-  return Array(a, b, c, d);
-
-}
-
-/*
- * These functions implement the four basic operations the algorithm uses.
- */
-function md5_cmn(q, a, b, x, s, t)
-{
-  return safe_add(bit_rol(safe_add(safe_add(a, q), safe_add(x, t)), s),b);
-}
-function md5_ff(a, b, c, d, x, s, t)
-{
-  return md5_cmn((b & c) | ((~b) & d), a, b, x, s, t);
-}
-function md5_gg(a, b, c, d, x, s, t)
-{
-  return md5_cmn((b & d) | (c & (~d)), a, b, x, s, t);
-}
-function md5_hh(a, b, c, d, x, s, t)
-{
-  return md5_cmn(b ^ c ^ d, a, b, x, s, t);
-}
-function md5_ii(a, b, c, d, x, s, t)
-{
-  return md5_cmn(c ^ (b | (~d)), a, b, x, s, t);
-}
-
-/*
- * Add integers, wrapping at 2^32. This uses 16-bit operations internally
- * to work around bugs in some JS interpreters.
- */
-function safe_add(x, y)
-{
-  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
-  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
-  return (msw << 16) | (lsw & 0xFFFF);
-}
-
-/*
- * Bitwise rotate a 32-bit number to the left.
- */
-function bit_rol(num, cnt)
-{
-  return (num << cnt) | (num >>> (32 - cnt));
-}
-
-module.exports = function md5(buf) {
-  return helpers.hash(buf, core_md5, 16);
-};
-
-},{"./helpers":9}],12:[function(require,module,exports){
-// Original code adapted from Robert Kieffer.
-// details at https://github.com/broofa/node-uuid
-(function() {
-  var _global = this;
-
-  var mathRNG, whatwgRNG;
-
-  // NOTE: Math.random() does not guarantee "cryptographic quality"
-  mathRNG = function(size) {
-    var bytes = new Array(size);
-    var r;
-
-    for (var i = 0, r; i < size; i++) {
-      if ((i & 0x03) == 0) r = Math.random() * 0x100000000;
-      bytes[i] = r >>> ((i & 0x03) << 3) & 0xff;
-    }
-
-    return bytes;
-  }
-
-  if (_global.crypto && crypto.getRandomValues) {
-    whatwgRNG = function(size) {
-      var bytes = new Uint8Array(size);
-      crypto.getRandomValues(bytes);
-      return bytes;
-    }
-  }
-
-  module.exports = whatwgRNG || mathRNG;
-
-}())
-
-},{}],13:[function(require,module,exports){
-/*
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
- * in FIPS PUB 180-1
- * Version 2.1a Copyright Paul Johnston 2000 - 2002.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- * Distributed under the BSD License
- * See http://pajhome.org.uk/crypt/md5 for details.
- */
-
-var helpers = require('./helpers');
-
-/*
- * Calculate the SHA-1 of an array of big-endian words, and a bit length
- */
-function core_sha1(x, len)
-{
-  /* append padding */
-  x[len >> 5] |= 0x80 << (24 - len % 32);
-  x[((len + 64 >> 9) << 4) + 15] = len;
-
-  var w = Array(80);
-  var a =  1732584193;
-  var b = -271733879;
-  var c = -1732584194;
-  var d =  271733878;
-  var e = -1009589776;
-
-  for(var i = 0; i < x.length; i += 16)
-  {
-    var olda = a;
-    var oldb = b;
-    var oldc = c;
-    var oldd = d;
-    var olde = e;
-
-    for(var j = 0; j < 80; j++)
-    {
-      if(j < 16) w[j] = x[i + j];
-      else w[j] = rol(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
-      var t = safe_add(safe_add(rol(a, 5), sha1_ft(j, b, c, d)),
-                       safe_add(safe_add(e, w[j]), sha1_kt(j)));
-      e = d;
-      d = c;
-      c = rol(b, 30);
-      b = a;
-      a = t;
-    }
-
-    a = safe_add(a, olda);
-    b = safe_add(b, oldb);
-    c = safe_add(c, oldc);
-    d = safe_add(d, oldd);
-    e = safe_add(e, olde);
-  }
-  return Array(a, b, c, d, e);
-
-}
-
-/*
- * Perform the appropriate triplet combination function for the current
- * iteration
- */
-function sha1_ft(t, b, c, d)
-{
-  if(t < 20) return (b & c) | ((~b) & d);
-  if(t < 40) return b ^ c ^ d;
-  if(t < 60) return (b & c) | (b & d) | (c & d);
-  return b ^ c ^ d;
-}
-
-/*
- * Determine the appropriate additive constant for the current iteration
- */
-function sha1_kt(t)
-{
-  return (t < 20) ?  1518500249 : (t < 40) ?  1859775393 :
-         (t < 60) ? -1894007588 : -899497514;
-}
-
-/*
- * Add integers, wrapping at 2^32. This uses 16-bit operations internally
- * to work around bugs in some JS interpreters.
- */
-function safe_add(x, y)
-{
-  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
-  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
-  return (msw << 16) | (lsw & 0xFFFF);
-}
-
-/*
- * Bitwise rotate a 32-bit number to the left.
- */
-function rol(num, cnt)
-{
-  return (num << cnt) | (num >>> (32 - cnt));
-}
-
-module.exports = function sha1(buf) {
-  return helpers.hash(buf, core_sha1, 20, true);
-};
-
-},{"./helpers":9}],14:[function(require,module,exports){
-
-/**
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
- * in FIPS 180-2
- * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- *
- */
-
-var helpers = require('./helpers');
-
-var safe_add = function(x, y) {
-  var lsw = (x & 0xFFFF) + (y & 0xFFFF);
-  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
-  return (msw << 16) | (lsw & 0xFFFF);
-};
-
-var S = function(X, n) {
-  return (X >>> n) | (X << (32 - n));
-};
-
-var R = function(X, n) {
-  return (X >>> n);
-};
-
-var Ch = function(x, y, z) {
-  return ((x & y) ^ ((~x) & z));
-};
-
-var Maj = function(x, y, z) {
-  return ((x & y) ^ (x & z) ^ (y & z));
-};
-
-var Sigma0256 = function(x) {
-  return (S(x, 2) ^ S(x, 13) ^ S(x, 22));
-};
-
-var Sigma1256 = function(x) {
-  return (S(x, 6) ^ S(x, 11) ^ S(x, 25));
-};
-
-var Gamma0256 = function(x) {
-  return (S(x, 7) ^ S(x, 18) ^ R(x, 3));
-};
-
-var Gamma1256 = function(x) {
-  return (S(x, 17) ^ S(x, 19) ^ R(x, 10));
-};
-
-var core_sha256 = function(m, l) {
-  var K = new Array(0x428A2F98,0x71374491,0xB5C0FBCF,0xE9B5DBA5,0x3956C25B,0x59F111F1,0x923F82A4,0xAB1C5ED5,0xD807AA98,0x12835B01,0x243185BE,0x550C7DC3,0x72BE5D74,0x80DEB1FE,0x9BDC06A7,0xC19BF174,0xE49B69C1,0xEFBE4786,0xFC19DC6,0x240CA1CC,0x2DE92C6F,0x4A7484AA,0x5CB0A9DC,0x76F988DA,0x983E5152,0xA831C66D,0xB00327C8,0xBF597FC7,0xC6E00BF3,0xD5A79147,0x6CA6351,0x14292967,0x27B70A85,0x2E1B2138,0x4D2C6DFC,0x53380D13,0x650A7354,0x766A0ABB,0x81C2C92E,0x92722C85,0xA2BFE8A1,0xA81A664B,0xC24B8B70,0xC76C51A3,0xD192E819,0xD6990624,0xF40E3585,0x106AA070,0x19A4C116,0x1E376C08,0x2748774C,0x34B0BCB5,0x391C0CB3,0x4ED8AA4A,0x5B9CCA4F,0x682E6FF3,0x748F82EE,0x78A5636F,0x84C87814,0x8CC70208,0x90BEFFFA,0xA4506CEB,0xBEF9A3F7,0xC67178F2);
-  var HASH = new Array(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19);
-    var W = new Array(64);
-    var a, b, c, d, e, f, g, h, i, j;
-    var T1, T2;
-  /* append padding */
-  m[l >> 5] |= 0x80 << (24 - l % 32);
-  m[((l + 64 >> 9) << 4) + 15] = l;
-  for (var i = 0; i < m.length; i += 16) {
-    a = HASH[0]; b = HASH[1]; c = HASH[2]; d = HASH[3]; e = HASH[4]; f = HASH[5]; g = HASH[6]; h = HASH[7];
-    for (var j = 0; j < 64; j++) {
-      if (j < 16) {
-        W[j] = m[j + i];
-      } else {
-        W[j] = safe_add(safe_add(safe_add(Gamma1256(W[j - 2]), W[j - 7]), Gamma0256(W[j - 15])), W[j - 16]);
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
       }
-      T1 = safe_add(safe_add(safe_add(safe_add(h, Sigma1256(e)), Ch(e, f, g)), K[j]), W[j]);
-      T2 = safe_add(Sigma0256(a), Maj(a, b, c));
-      h = g; g = f; f = e; e = safe_add(d, T1); d = c; c = b; b = a; a = safe_add(T1, T2);
+      throw TypeError('Uncaught, unspecified "error" event.');
     }
-    HASH[0] = safe_add(a, HASH[0]); HASH[1] = safe_add(b, HASH[1]); HASH[2] = safe_add(c, HASH[2]); HASH[3] = safe_add(d, HASH[3]);
-    HASH[4] = safe_add(e, HASH[4]); HASH[5] = safe_add(f, HASH[5]); HASH[6] = safe_add(g, HASH[6]); HASH[7] = safe_add(h, HASH[7]);
   }
-  return HASH;
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        len = arguments.length;
+        args = new Array(len - 1);
+        for (i = 1; i < len; i++)
+          args[i - 1] = arguments[i];
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    len = arguments.length;
+    args = new Array(len - 1);
+    for (i = 1; i < len; i++)
+      args[i - 1] = arguments[i];
+
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
 };
 
-module.exports = function sha256(buf) {
-  return helpers.hash(buf, core_sha256, 32, true);
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    var m;
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
 };
 
-},{"./helpers":9}],15:[function(require,module,exports){
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  var ret;
+  if (!emitter._events || !emitter._events[type])
+    ret = 0;
+  else if (isFunction(emitter._events[type]))
+    ret = 1;
+  else
+    ret = emitter._events[type].length;
+  return ret;
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+},{}],5:[function(require,module,exports){
 /* NProgress, (c) 2013, 2014 Rico Sta. Cruz - http://ricostacruz.com/nprogress
  * @license MIT */
 
@@ -9248,451 +5199,171 @@ module.exports = function sha256(buf) {
 });
 
 
-},{}],16:[function(require,module,exports){
-/**
+},{}],6:[function(require,module,exports){
+var inherits = require('inherits');
+var EventEmitter = require('events').EventEmitter;
 
-seedrandom.js
-=============
+module.exports = Queue;
 
-Seeded random number generator for Javascript.
-
-version 2.3.11
-Author: David Bau
-Date: 2014 Dec 11
-
-Can be used as a plain script, a node.js module or an AMD module.
-
-Script tag usage
-----------------
-
-<script src=//cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.11/seedrandom.min.js>
-</script>
-
-// Sets Math.random to a PRNG initialized using the given explicit seed.
-Math.seedrandom('hello.');
-console.log(Math.random());          // Always 0.9282578795792454
-console.log(Math.random());          // Always 0.3752569768646784
-
-// Sets Math.random to an ARC4-based PRNG that is autoseeded using the
-// current time, dom state, and other accumulated local entropy.
-// The generated seed string is returned.
-Math.seedrandom();
-console.log(Math.random());          // Reasonably unpredictable.
-
-// Seeds using the given explicit seed mixed with accumulated entropy.
-Math.seedrandom('added entropy.', { entropy: true });
-console.log(Math.random());          // As unpredictable as added entropy.
-
-// Use "new" to create a local prng without altering Math.random.
-var myrng = new Math.seedrandom('hello.');
-console.log(myrng());                // Always 0.9282578795792454
-
-
-Node.js usage
--------------
-
-npm install seedrandom
-
-// Local PRNG: does not affect Math.random.
-var seedrandom = require('seedrandom');
-var rng = seedrandom('hello.');
-console.log(rng());                  // Always 0.9282578795792454
-
-// Autoseeded ARC4-based PRNG.
-rng = seedrandom();
-console.log(rng());                  // Reasonably unpredictable.
-
-// Global PRNG: set Math.random.
-seedrandom('hello.', { global: true });
-console.log(Math.random());          // Always 0.9282578795792454
-
-// Mixing accumulated entropy.
-rng = seedrandom('added entropy.', { entropy: true });
-console.log(rng());                  // As unpredictable as added entropy.
-
-
-Require.js usage
-----------------
-
-Similar to node.js usage:
-
-bower install seedrandom
-
-require(['seedrandom'], function(seedrandom) {
-  var rng = seedrandom('hello.');
-  console.log(rng());                  // Always 0.9282578795792454
-});
-
-
-Network seeding
----------------
-
-<script src=//cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.11/seedrandom.min.js>
-</script>
-
-<!-- Seeds using urandom bits from a server. -->
-<script src=//jsonlib.appspot.com/urandom?callback=Math.seedrandom">
-</script>
-
-<!-- Seeds mixing in random.org bits -->
-<script>
-(function(x, u, s){
-  try {
-    // Make a synchronous request to random.org.
-    x.open('GET', u, false);
-    x.send();
-    s = unescape(x.response.trim().replace(/^|\s/g, '%'));
-  } finally {
-    // Seed with the response, or autoseed on failure.
-    Math.seedrandom(s, !!s);
-  }
-})(new XMLHttpRequest, 'https://www.random.org/integers/' +
-  '?num=256&min=0&max=255&col=1&base=16&format=plain&rnd=new');
-</script>
-
-Reseeding using user input
---------------------------
-
-var seed = Math.seedrandom();        // Use prng with an automatic seed.
-document.write(Math.random());       // Pretty much unpredictable x.
-
-var rng = new Math.seedrandom(seed); // A new prng with the same seed.
-document.write(rng());               // Repeat the 'unpredictable' x.
-
-function reseed(event, count) {      // Define a custom entropy collector.
-  var t = [];
-  function w(e) {
-    t.push([e.pageX, e.pageY, +new Date]);
-    if (t.length &lt; count) { return; }
-    document.removeEventListener(event, w);
-    Math.seedrandom(t, { entropy: true });
-  }
-  document.addEventListener(event, w);
+function Queue(options) {
+  if (!(this instanceof Queue))
+    return new Queue(options);
+  
+  EventEmitter.call(this);
+  options = options || {};
+  this.concurrency = options.concurrency || Infinity;
+  this.timeout = options.timeout || 0;
+  this.pending = 0;
+  this.session = 0;
+  this.running = false;
+  this.jobs = [];
 }
-reseed('mousemove', 100);            // Reseed after 100 mouse moves.
+inherits(Queue, EventEmitter);
 
-The "pass" option can be used to get both the prng and the seed.
-The following returns both an autoseeded prng and the seed as an object,
-without mutating Math.random:
+var arrayMethods = [
+  'push',
+  'unshift',
+  'splice',
+  'pop',
+  'shift',
+  'slice',
+  'reverse',
+  'indexOf',
+  'lastIndexOf'
+];
 
-var obj = Math.seedrandom(null, { pass: function(prng, seed) {
-  return { random: prng, seed: seed };
+for (var method in arrayMethods) (function(method) {
+  Queue.prototype[method] = function() {
+    return Array.prototype[method].apply(this.jobs, arguments);
+  };
+})(arrayMethods[method]);
+
+Object.defineProperty(Queue.prototype, 'length', { get: function() {
+  return this.pending + this.jobs.length;
 }});
 
+Queue.prototype.start = function(cb) {
+  if (cb) {
+    callOnErrorOrEnd.call(this, cb);
+  }
 
-Saving and Restoring PRNG state
--------------------------------
-
-var seedrandom = Math.seedrandom;
-var saveable = seedrandom("secret-seed", {state: true});
-for (var j = 0; j < 1e5; ++j) saveable();
-var saved = saveable.state();
-var replica = seedrandom("", {state: saved});
-assert(replica() == saveable());
-
-In normal use the prng is opaque and its internal state cannot be accessed.
-However, if the "state" option is specified, the prng gets a state() method
-that returns a plain object the can be used to reconstruct a prng later in
-the same state (by passing that saved object back as the state option).
-
-
-Version notes
--------------
-
-The random number sequence is the same as version 1.0 for string seeds.
-* Version 2.0 changed the sequence for non-string seeds.
-* Version 2.1 speeds seeding and uses window.crypto to autoseed if present.
-* Version 2.2 alters non-crypto autoseeding to sweep up entropy from plugins.
-* Version 2.3 adds support for "new", module loading, and a null seed arg.
-* Version 2.3.1 adds a build environment, module packaging, and tests.
-* Version 2.3.4 fixes bugs on IE8, and switches to MIT license.
-* Version 2.3.6 adds a readable options object argument.
-* Version 2.3.10 adds support for node.js crypto (contributed by ctd1500).
-* Version 2.3.11 adds an option to load and save internal state.
-
-The standard ARC4 key scheduler cycles short keys, which means that
-seedrandom('ab') is equivalent to seedrandom('abab') and 'ababab'.
-Therefore it is a good idea to add a terminator to avoid trivial
-equivalences on short string seeds, e.g., Math.seedrandom(str + '\0').
-Starting with version 2.0, a terminator is added automatically for
-non-string seeds, so seeding with the number 111 is the same as seeding
-with '111\0'.
-
-When seedrandom() is called with zero args or a null seed, it uses a
-seed drawn from the browser crypto object if present.  If there is no
-crypto support, seedrandom() uses the current time, the native rng,
-and a walk of several DOM objects to collect a few bits of entropy.
-
-Each time the one- or two-argument forms of seedrandom are called,
-entropy from the passed seed is accumulated in a pool to help generate
-future seeds for the zero- and two-argument forms of seedrandom.
-
-On speed - This javascript implementation of Math.random() is several
-times slower than the built-in Math.random() because it is not native
-code, but that is typically fast enough.  Some details (timings on
-Chrome 25 on a 2010 vintage macbook):
-
-* seeded Math.random()          - avg less than 0.0002 milliseconds per call
-* seedrandom('explicit.')       - avg less than 0.2 milliseconds per call
-* seedrandom('explicit.', true) - avg less than 0.2 milliseconds per call
-* seedrandom() with crypto      - avg less than 0.2 milliseconds per call
-
-Autoseeding without crypto is somewhat slower, about 20-30 milliseconds on
-a 2012 windows 7 1.5ghz i5 laptop, as seen on Firefox 19, IE 10, and Opera.
-Seeded rng calls themselves are fast across these browsers, with slowest
-numbers on Opera at about 0.0005 ms per seeded Math.random().
-
-
-LICENSE (MIT)
--------------
-
-Copyright 2014 David Bau.
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-*/
-
-/**
- * All code is in an anonymous closure to keep the global namespace clean.
- */
-(function (
-    global, pool, math, width, chunks, digits, module, define, rngname) {
-
-//
-// The following constants are related to IEEE 754 limits.
-//
-var startdenom = math.pow(width, chunks),
-    significance = math.pow(2, digits),
-    overflow = significance * 2,
-    mask = width - 1,
-    nodecrypto;
-
-//
-// seedrandom()
-// This is the seedrandom function described above.
-//
-var impl = math['seed' + rngname] = function(seed, options, callback) {
-  var key = [];
-  options = (options == true) ? { entropy: true } : (options || {});
-
-  // Flatten the seed string or build one from local entropy if needed.
-  var shortseed = mixkey(flatten(
-    options.entropy ? [seed, tostring(pool)] :
-    (seed == null) ? autoseed() : seed, 3), key);
-
-  // Use the seed to initialize an ARC4 generator.
-  var arc4 = new ARC4(key);
-
-  // Mix the randomness into accumulated entropy.
-  mixkey(tostring(arc4.S), pool);
-
-  // Calling convention: what to return as a function of prng, seed, is_math.
-  return (options.pass || callback ||
-      function(prng, seed, is_math_call, state) {
-        if (state) {
-          // Load the arc4 state from the given state if it has an S array.
-          if (state.S) { copy(state, arc4); }
-          // Only provide the .state method if requested via options.state.
-          prng.state = function() { return copy(arc4, {}); }
+  if (this.pending === this.concurrency) {
+    return;
+  }
+  
+  if (this.jobs.length === 0) {
+    if (this.pending === 0) {
+      done.call(this);
+    }
+    return;
+  }
+  
+  var self = this;
+  var job = this.jobs.shift();
+  var once = true;
+  var session = this.session;
+  var timeoutId = null;
+  var didTimeout = false;
+  
+  function next(err, result) {
+    if (once && self.session === session) {
+      once = false;
+      self.pending--;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      
+      if (err) {
+        self.emit('error', err, job);
+      } else if (didTimeout === false) {
+        self.emit('success', result, job);
+      }
+      
+      if (self.session === session) {
+        if (self.pending === 0 && self.jobs.length === 0) {
+          done.call(self);
+        } else if (self.running) {
+          self.start();
         }
-
-        // If called as a method of Math (Math.seedrandom()), mutate
-        // Math.random because that is how seedrandom.js has worked since v1.0.
-        if (is_math_call) { math[rngname] = prng; return seed; }
-
-        // Otherwise, it is a newer calling convention, so return the
-        // prng directly.
-        else return prng;
-      })(
-
-  // This function returns a random double in [0, 1) that contains
-  // randomness in every bit of the mantissa of the IEEE 754 value.
-  function() {
-    var n = arc4.g(chunks),             // Start with a numerator n < 2 ^ 48
-        d = startdenom,                 //   and denominator d = 2 ^ 48.
-        x = 0;                          //   and no 'extra last byte'.
-    while (n < significance) {          // Fill up all significant digits by
-      n = (n + x) * width;              //   shifting numerator and
-      d *= width;                       //   denominator and generating a
-      x = arc4.g(1);                    //   new least-significant-byte.
+      }
     }
-    while (n >= overflow) {             // To avoid rounding up, before adding
-      n /= 2;                           //   last byte, shift everything
-      d /= 2;                           //   right using integer math until
-      x >>>= 1;                         //   we have exactly the desired bits.
-    }
-    return (n + x) / d;                 // Form the number within [0, 1).
-  },
-  shortseed,
-  'global' in options ? options.global : (this == math),
-  options.state);
+  }
+  
+  if (this.timeout) {
+    timeoutId = setTimeout(function() {
+      didTimeout = true;
+      if (self.listeners('timeout').length > 0) {
+        self.emit('timeout', next, job);
+      } else {
+        next();
+      }
+    }, this.timeout);
+  }
+  
+  this.pending++;
+  this.running = true;
+  job(next);
+  
+  if (this.jobs.length > 0) {
+    this.start();
+  }
 };
 
-//
-// ARC4
-//
-// An ARC4 implementation.  The constructor takes a key in the form of
-// an array of at most (width) integers that should be 0 <= x < (width).
-//
-// The g(count) method returns a pseudorandom integer that concatenates
-// the next (count) outputs from ARC4.  Its return value is a number x
-// that is in the range 0 <= x < (width ^ count).
-//
-/** @constructor */
-function ARC4(key) {
-  var t, keylen = key.length,
-      me = this, i = 0, j = me.i = me.j = 0, s = me.S = [];
-
-  // The empty key [] is treated as [0].
-  if (!keylen) { key = [keylen++]; }
-
-  // Set up S using the standard key scheduling algorithm.
-  while (i < width) {
-    s[i] = i++;
-  }
-  for (i = 0; i < width; i++) {
-    s[i] = s[j = mask & (j + key[i % keylen] + (t = s[i]))];
-    s[j] = t;
-  }
-
-  // The "g" method returns the next (count) outputs as one number.
-  (me.g = function(count) {
-    // Using instance members instead of closure state nearly doubles speed.
-    var t, r = 0,
-        i = me.i, j = me.j, s = me.S;
-    while (count--) {
-      t = s[i = mask & (i + 1)];
-      r = r * width + s[mask & ((s[i] = s[j = mask & (j + t)]) + (s[j] = t))];
-    }
-    me.i = i; me.j = j;
-    return r;
-    // For robust unpredictability, the function call below automatically
-    // discards an initial batch of values.  This is called RC4-drop[256].
-    // See http://google.com/search?q=rsa+fluhrer+response&btnI
-  })(width);
-}
-
-//
-// copy()
-// Copies internal state of ARC4 to or from a plain object.
-//
-function copy(f, t) {
-  t.i = f.i;
-  t.j = f.j;
-  t.S = f.S.slice();
-  return t;
+Queue.prototype.stop = function() {
+  this.running = false;
 };
 
-//
-// flatten()
-// Converts an object tree to nested arrays of strings.
-//
-function flatten(obj, depth) {
-  var result = [], typ = (typeof obj), prop;
-  if (depth && typ == 'object') {
-    for (prop in obj) {
-      try { result.push(flatten(obj[prop], depth - 1)); } catch (e) {}
-    }
-  }
-  return (result.length ? result : typ == 'string' ? obj : obj + '\0');
-}
+Queue.prototype.end = function(err) {
+  this.jobs.length = 0;
+  this.pending = 0;
+  done.call(this, err);
+};
 
-//
-// mixkey()
-// Mixes a string seed into a key that is an array of integers, and
-// returns a shortened string seed that is equivalent to the result key.
-//
-function mixkey(seed, key) {
-  var stringseed = seed + '', smear, j = 0;
-  while (j < stringseed.length) {
-    key[mask & j] =
-      mask & ((smear ^= key[mask & j] * 19) + stringseed.charCodeAt(j++));
-  }
-  return tostring(key);
-}
+function callOnErrorOrEnd(cb) {
+  var self = this;
+  this.on('error', onerror);
+  this.on('end', onend);
 
-//
-// autoseed()
-// Returns an object for autoseeding, using window.crypto if available.
-//
-/** @param {Uint8Array|Navigator=} seed */
-function autoseed(seed) {
-  try {
-    if (nodecrypto) return tostring(nodecrypto.randomBytes(width));
-    global.crypto.getRandomValues(seed = new Uint8Array(width));
-    return tostring(seed);
-  } catch (e) {
-    return [+new Date, global, (seed = global.navigator) && seed.plugins,
-      global.screen, tostring(pool)];
+  function onerror(err) { self.end(err); }
+  function onend(err) {
+    self.removeListener('error', onerror);
+    self.removeListener('end', onend);
+    cb(err);
   }
 }
 
-//
-// tostring()
-// Converts an array of charcodes to a string
-//
-function tostring(a) {
-  return String.fromCharCode.apply(0, a);
+function done(err) {
+  this.session++;
+  this.running = false;
+  this.emit('end', err);
 }
 
-//
-// When seedrandom.js is loaded, we immediately mix a few bits
-// from the built-in RNG into the entropy pool.  Because we do
-// not want to interfere with deterministic PRNG state later,
-// seedrandom will not call math.random on its own again after
-// initialization.
-//
-mixkey(math[rngname](), pool);
-
-//
-// Nodejs and AMD support: export the implementation as a module using
-// either convention.
-//
-if (module && module.exports) {
-  module.exports = impl;
-  try {
-    // When in node.js, try using crypto package for autoseeding.
-    nodecrypto = require('crypto');
-  } catch (ex) {}
-} else if (define && define.amd) {
-  define(function() { return impl; });
+},{"events":4,"inherits":7}],7:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
 }
 
-//
-// Node.js native crypto support.
-//
-
-// End anonymous scope, and pass initial values.
-})(
-  this,   // global window object
-  [],     // pool: entropy pool starts empty
-  Math,   // math: package containing random, pow, and seedrandom
-  256,    // width: each RC4 output is 0 <= x < 256
-  6,      // chunks: at least six RC4 outputs for each double
-  52,     // digits: there are 52 significant digits in a double
-  (typeof module) == 'object' && module,    // present in node.js
-  (typeof define) == 'function' && define,  // present with an AMD loader
-  'random'// rngname: name for Math.random and Math.seedrandom
-);
-
-},{"crypto":10}],17:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -9842,7 +5513,7 @@ if ( typeof module === 'object' ) {
 	module.exports = Stats;
 
 }
-},{}],18:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -44402,1172 +40073,7 @@ if (typeof exports !== 'undefined') {
   this['THREE'] = THREE;
 }
 
-},{}],19:[function(require,module,exports){
-// TinyColor v1.1.2
-// https://github.com/bgrins/TinyColor
-// Brian Grinstead, MIT License
-
-(function() {
-
-var trimLeft = /^[\s,#]+/,
-    trimRight = /\s+$/,
-    tinyCounter = 0,
-    math = Math,
-    mathRound = math.round,
-    mathMin = math.min,
-    mathMax = math.max,
-    mathRandom = math.random;
-
-function tinycolor (color, opts) {
-
-    color = (color) ? color : '';
-    opts = opts || { };
-
-    // If input is already a tinycolor, return itself
-    if (color instanceof tinycolor) {
-       return color;
-    }
-    // If we are called as a function, call using new instead
-    if (!(this instanceof tinycolor)) {
-        return new tinycolor(color, opts);
-    }
-
-    var rgb = inputToRGB(color);
-    this._originalInput = color,
-    this._r = rgb.r,
-    this._g = rgb.g,
-    this._b = rgb.b,
-    this._a = rgb.a,
-    this._roundA = mathRound(100*this._a) / 100,
-    this._format = opts.format || rgb.format;
-    this._gradientType = opts.gradientType;
-
-    // Don't let the range of [0,255] come back in [0,1].
-    // Potentially lose a little bit of precision here, but will fix issues where
-    // .5 gets interpreted as half of the total, instead of half of 1
-    // If it was supposed to be 128, this was already taken care of by `inputToRgb`
-    if (this._r < 1) { this._r = mathRound(this._r); }
-    if (this._g < 1) { this._g = mathRound(this._g); }
-    if (this._b < 1) { this._b = mathRound(this._b); }
-
-    this._ok = rgb.ok;
-    this._tc_id = tinyCounter++;
-}
-
-tinycolor.prototype = {
-    isDark: function() {
-        return this.getBrightness() < 128;
-    },
-    isLight: function() {
-        return !this.isDark();
-    },
-    isValid: function() {
-        return this._ok;
-    },
-    getOriginalInput: function() {
-      return this._originalInput;
-    },
-    getFormat: function() {
-        return this._format;
-    },
-    getAlpha: function() {
-        return this._a;
-    },
-    getBrightness: function() {
-        //http://www.w3.org/TR/AERT#color-contrast
-        var rgb = this.toRgb();
-        return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
-    },
-    getLuminance: function() {
-        //http://www.w3.org/TR/2008/REC-WCAG20-20081211/#relativeluminancedef
-        var rgb = this.toRgb();
-        var RsRGB, GsRGB, BsRGB, R, G, B;
-        RsRGB = rgb.r/255;
-        GsRGB = rgb.g/255;
-        BsRGB = rgb.b/255;
-
-        if (RsRGB <= 0.03928) {R = RsRGB / 12.92;} else {R = Math.pow(((RsRGB + 0.055) / 1.055), 2.4);}
-        if (GsRGB <= 0.03928) {G = GsRGB / 12.92;} else {G = Math.pow(((GsRGB + 0.055) / 1.055), 2.4);}
-        if (BsRGB <= 0.03928) {B = BsRGB / 12.92;} else {B = Math.pow(((BsRGB + 0.055) / 1.055), 2.4);}
-        return (0.2126 * R) + (0.7152 * G) + (0.0722 * B);
-    },
-    setAlpha: function(value) {
-        this._a = boundAlpha(value);
-        this._roundA = mathRound(100*this._a) / 100;
-        return this;
-    },
-    toHsv: function() {
-        var hsv = rgbToHsv(this._r, this._g, this._b);
-        return { h: hsv.h * 360, s: hsv.s, v: hsv.v, a: this._a };
-    },
-    toHsvString: function() {
-        var hsv = rgbToHsv(this._r, this._g, this._b);
-        var h = mathRound(hsv.h * 360), s = mathRound(hsv.s * 100), v = mathRound(hsv.v * 100);
-        return (this._a == 1) ?
-          "hsv("  + h + ", " + s + "%, " + v + "%)" :
-          "hsva(" + h + ", " + s + "%, " + v + "%, "+ this._roundA + ")";
-    },
-    toHsl: function() {
-        var hsl = rgbToHsl(this._r, this._g, this._b);
-        return { h: hsl.h * 360, s: hsl.s, l: hsl.l, a: this._a };
-    },
-    toHslString: function() {
-        var hsl = rgbToHsl(this._r, this._g, this._b);
-        var h = mathRound(hsl.h * 360), s = mathRound(hsl.s * 100), l = mathRound(hsl.l * 100);
-        return (this._a == 1) ?
-          "hsl("  + h + ", " + s + "%, " + l + "%)" :
-          "hsla(" + h + ", " + s + "%, " + l + "%, "+ this._roundA + ")";
-    },
-    toHex: function(allow3Char) {
-        return rgbToHex(this._r, this._g, this._b, allow3Char);
-    },
-    toHexString: function(allow3Char) {
-        return '#' + this.toHex(allow3Char);
-    },
-    toHex8: function() {
-        return rgbaToHex(this._r, this._g, this._b, this._a);
-    },
-    toHex8String: function() {
-        return '#' + this.toHex8();
-    },
-    toRgb: function() {
-        return { r: mathRound(this._r), g: mathRound(this._g), b: mathRound(this._b), a: this._a };
-    },
-    toRgbString: function() {
-        return (this._a == 1) ?
-          "rgb("  + mathRound(this._r) + ", " + mathRound(this._g) + ", " + mathRound(this._b) + ")" :
-          "rgba(" + mathRound(this._r) + ", " + mathRound(this._g) + ", " + mathRound(this._b) + ", " + this._roundA + ")";
-    },
-    toPercentageRgb: function() {
-        return { r: mathRound(bound01(this._r, 255) * 100) + "%", g: mathRound(bound01(this._g, 255) * 100) + "%", b: mathRound(bound01(this._b, 255) * 100) + "%", a: this._a };
-    },
-    toPercentageRgbString: function() {
-        return (this._a == 1) ?
-          "rgb("  + mathRound(bound01(this._r, 255) * 100) + "%, " + mathRound(bound01(this._g, 255) * 100) + "%, " + mathRound(bound01(this._b, 255) * 100) + "%)" :
-          "rgba(" + mathRound(bound01(this._r, 255) * 100) + "%, " + mathRound(bound01(this._g, 255) * 100) + "%, " + mathRound(bound01(this._b, 255) * 100) + "%, " + this._roundA + ")";
-    },
-    toName: function() {
-        if (this._a === 0) {
-            return "transparent";
-        }
-
-        if (this._a < 1) {
-            return false;
-        }
-
-        return hexNames[rgbToHex(this._r, this._g, this._b, true)] || false;
-    },
-    toFilter: function(secondColor) {
-        var hex8String = '#' + rgbaToHex(this._r, this._g, this._b, this._a);
-        var secondHex8String = hex8String;
-        var gradientType = this._gradientType ? "GradientType = 1, " : "";
-
-        if (secondColor) {
-            var s = tinycolor(secondColor);
-            secondHex8String = s.toHex8String();
-        }
-
-        return "progid:DXImageTransform.Microsoft.gradient("+gradientType+"startColorstr="+hex8String+",endColorstr="+secondHex8String+")";
-    },
-    toString: function(format) {
-        var formatSet = !!format;
-        format = format || this._format;
-
-        var formattedString = false;
-        var hasAlpha = this._a < 1 && this._a >= 0;
-        var needsAlphaFormat = !formatSet && hasAlpha && (format === "hex" || format === "hex6" || format === "hex3" || format === "name");
-
-        if (needsAlphaFormat) {
-            // Special case for "transparent", all other non-alpha formats
-            // will return rgba when there is transparency.
-            if (format === "name" && this._a === 0) {
-                return this.toName();
-            }
-            return this.toRgbString();
-        }
-        if (format === "rgb") {
-            formattedString = this.toRgbString();
-        }
-        if (format === "prgb") {
-            formattedString = this.toPercentageRgbString();
-        }
-        if (format === "hex" || format === "hex6") {
-            formattedString = this.toHexString();
-        }
-        if (format === "hex3") {
-            formattedString = this.toHexString(true);
-        }
-        if (format === "hex8") {
-            formattedString = this.toHex8String();
-        }
-        if (format === "name") {
-            formattedString = this.toName();
-        }
-        if (format === "hsl") {
-            formattedString = this.toHslString();
-        }
-        if (format === "hsv") {
-            formattedString = this.toHsvString();
-        }
-
-        return formattedString || this.toHexString();
-    },
-
-    _applyModification: function(fn, args) {
-        var color = fn.apply(null, [this].concat([].slice.call(args)));
-        this._r = color._r;
-        this._g = color._g;
-        this._b = color._b;
-        this.setAlpha(color._a);
-        return this;
-    },
-    lighten: function() {
-        return this._applyModification(lighten, arguments);
-    },
-    brighten: function() {
-        return this._applyModification(brighten, arguments);
-    },
-    darken: function() {
-        return this._applyModification(darken, arguments);
-    },
-    desaturate: function() {
-        return this._applyModification(desaturate, arguments);
-    },
-    saturate: function() {
-        return this._applyModification(saturate, arguments);
-    },
-    greyscale: function() {
-        return this._applyModification(greyscale, arguments);
-    },
-    spin: function() {
-        return this._applyModification(spin, arguments);
-    },
-
-    _applyCombination: function(fn, args) {
-        return fn.apply(null, [this].concat([].slice.call(args)));
-    },
-    analogous: function() {
-        return this._applyCombination(analogous, arguments);
-    },
-    complement: function() {
-        return this._applyCombination(complement, arguments);
-    },
-    monochromatic: function() {
-        return this._applyCombination(monochromatic, arguments);
-    },
-    splitcomplement: function() {
-        return this._applyCombination(splitcomplement, arguments);
-    },
-    triad: function() {
-        return this._applyCombination(triad, arguments);
-    },
-    tetrad: function() {
-        return this._applyCombination(tetrad, arguments);
-    }
-};
-
-// If input is an object, force 1 into "1.0" to handle ratios properly
-// String input requires "1.0" as input, so 1 will be treated as 1
-tinycolor.fromRatio = function(color, opts) {
-    if (typeof color == "object") {
-        var newColor = {};
-        for (var i in color) {
-            if (color.hasOwnProperty(i)) {
-                if (i === "a") {
-                    newColor[i] = color[i];
-                }
-                else {
-                    newColor[i] = convertToPercentage(color[i]);
-                }
-            }
-        }
-        color = newColor;
-    }
-
-    return tinycolor(color, opts);
-};
-
-// Given a string or object, convert that input to RGB
-// Possible string inputs:
-//
-//     "red"
-//     "#f00" or "f00"
-//     "#ff0000" or "ff0000"
-//     "#ff000000" or "ff000000"
-//     "rgb 255 0 0" or "rgb (255, 0, 0)"
-//     "rgb 1.0 0 0" or "rgb (1, 0, 0)"
-//     "rgba (255, 0, 0, 1)" or "rgba 255, 0, 0, 1"
-//     "rgba (1.0, 0, 0, 1)" or "rgba 1.0, 0, 0, 1"
-//     "hsl(0, 100%, 50%)" or "hsl 0 100% 50%"
-//     "hsla(0, 100%, 50%, 1)" or "hsla 0 100% 50%, 1"
-//     "hsv(0, 100%, 100%)" or "hsv 0 100% 100%"
-//
-function inputToRGB(color) {
-
-    var rgb = { r: 0, g: 0, b: 0 };
-    var a = 1;
-    var ok = false;
-    var format = false;
-
-    if (typeof color == "string") {
-        color = stringInputToObject(color);
-    }
-
-    if (typeof color == "object") {
-        if (color.hasOwnProperty("r") && color.hasOwnProperty("g") && color.hasOwnProperty("b")) {
-            rgb = rgbToRgb(color.r, color.g, color.b);
-            ok = true;
-            format = String(color.r).substr(-1) === "%" ? "prgb" : "rgb";
-        }
-        else if (color.hasOwnProperty("h") && color.hasOwnProperty("s") && color.hasOwnProperty("v")) {
-            color.s = convertToPercentage(color.s);
-            color.v = convertToPercentage(color.v);
-            rgb = hsvToRgb(color.h, color.s, color.v);
-            ok = true;
-            format = "hsv";
-        }
-        else if (color.hasOwnProperty("h") && color.hasOwnProperty("s") && color.hasOwnProperty("l")) {
-            color.s = convertToPercentage(color.s);
-            color.l = convertToPercentage(color.l);
-            rgb = hslToRgb(color.h, color.s, color.l);
-            ok = true;
-            format = "hsl";
-        }
-
-        if (color.hasOwnProperty("a")) {
-            a = color.a;
-        }
-    }
-
-    a = boundAlpha(a);
-
-    return {
-        ok: ok,
-        format: color.format || format,
-        r: mathMin(255, mathMax(rgb.r, 0)),
-        g: mathMin(255, mathMax(rgb.g, 0)),
-        b: mathMin(255, mathMax(rgb.b, 0)),
-        a: a
-    };
-}
-
-
-// Conversion Functions
-// --------------------
-
-// `rgbToHsl`, `rgbToHsv`, `hslToRgb`, `hsvToRgb` modified from:
-// <http://mjijackson.com/2008/02/rgb-to-hsl-and-rgb-to-hsv-color-model-conversion-algorithms-in-javascript>
-
-// `rgbToRgb`
-// Handle bounds / percentage checking to conform to CSS color spec
-// <http://www.w3.org/TR/css3-color/>
-// *Assumes:* r, g, b in [0, 255] or [0, 1]
-// *Returns:* { r, g, b } in [0, 255]
-function rgbToRgb(r, g, b){
-    return {
-        r: bound01(r, 255) * 255,
-        g: bound01(g, 255) * 255,
-        b: bound01(b, 255) * 255
-    };
-}
-
-// `rgbToHsl`
-// Converts an RGB color value to HSL.
-// *Assumes:* r, g, and b are contained in [0, 255] or [0, 1]
-// *Returns:* { h, s, l } in [0,1]
-function rgbToHsl(r, g, b) {
-
-    r = bound01(r, 255);
-    g = bound01(g, 255);
-    b = bound01(b, 255);
-
-    var max = mathMax(r, g, b), min = mathMin(r, g, b);
-    var h, s, l = (max + min) / 2;
-
-    if(max == min) {
-        h = s = 0; // achromatic
-    }
-    else {
-        var d = max - min;
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-        switch(max) {
-            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-            case g: h = (b - r) / d + 2; break;
-            case b: h = (r - g) / d + 4; break;
-        }
-
-        h /= 6;
-    }
-
-    return { h: h, s: s, l: l };
-}
-
-// `hslToRgb`
-// Converts an HSL color value to RGB.
-// *Assumes:* h is contained in [0, 1] or [0, 360] and s and l are contained [0, 1] or [0, 100]
-// *Returns:* { r, g, b } in the set [0, 255]
-function hslToRgb(h, s, l) {
-    var r, g, b;
-
-    h = bound01(h, 360);
-    s = bound01(s, 100);
-    l = bound01(l, 100);
-
-    function hue2rgb(p, q, t) {
-        if(t < 0) t += 1;
-        if(t > 1) t -= 1;
-        if(t < 1/6) return p + (q - p) * 6 * t;
-        if(t < 1/2) return q;
-        if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-    }
-
-    if(s === 0) {
-        r = g = b = l; // achromatic
-    }
-    else {
-        var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        var p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1/3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1/3);
-    }
-
-    return { r: r * 255, g: g * 255, b: b * 255 };
-}
-
-// `rgbToHsv`
-// Converts an RGB color value to HSV
-// *Assumes:* r, g, and b are contained in the set [0, 255] or [0, 1]
-// *Returns:* { h, s, v } in [0,1]
-function rgbToHsv(r, g, b) {
-
-    r = bound01(r, 255);
-    g = bound01(g, 255);
-    b = bound01(b, 255);
-
-    var max = mathMax(r, g, b), min = mathMin(r, g, b);
-    var h, s, v = max;
-
-    var d = max - min;
-    s = max === 0 ? 0 : d / max;
-
-    if(max == min) {
-        h = 0; // achromatic
-    }
-    else {
-        switch(max) {
-            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-            case g: h = (b - r) / d + 2; break;
-            case b: h = (r - g) / d + 4; break;
-        }
-        h /= 6;
-    }
-    return { h: h, s: s, v: v };
-}
-
-// `hsvToRgb`
-// Converts an HSV color value to RGB.
-// *Assumes:* h is contained in [0, 1] or [0, 360] and s and v are contained in [0, 1] or [0, 100]
-// *Returns:* { r, g, b } in the set [0, 255]
- function hsvToRgb(h, s, v) {
-
-    h = bound01(h, 360) * 6;
-    s = bound01(s, 100);
-    v = bound01(v, 100);
-
-    var i = math.floor(h),
-        f = h - i,
-        p = v * (1 - s),
-        q = v * (1 - f * s),
-        t = v * (1 - (1 - f) * s),
-        mod = i % 6,
-        r = [v, q, p, p, t, v][mod],
-        g = [t, v, v, q, p, p][mod],
-        b = [p, p, t, v, v, q][mod];
-
-    return { r: r * 255, g: g * 255, b: b * 255 };
-}
-
-// `rgbToHex`
-// Converts an RGB color to hex
-// Assumes r, g, and b are contained in the set [0, 255]
-// Returns a 3 or 6 character hex
-function rgbToHex(r, g, b, allow3Char) {
-
-    var hex = [
-        pad2(mathRound(r).toString(16)),
-        pad2(mathRound(g).toString(16)),
-        pad2(mathRound(b).toString(16))
-    ];
-
-    // Return a 3 character hex if possible
-    if (allow3Char && hex[0].charAt(0) == hex[0].charAt(1) && hex[1].charAt(0) == hex[1].charAt(1) && hex[2].charAt(0) == hex[2].charAt(1)) {
-        return hex[0].charAt(0) + hex[1].charAt(0) + hex[2].charAt(0);
-    }
-
-    return hex.join("");
-}
-    // `rgbaToHex`
-    // Converts an RGBA color plus alpha transparency to hex
-    // Assumes r, g, b and a are contained in the set [0, 255]
-    // Returns an 8 character hex
-    function rgbaToHex(r, g, b, a) {
-
-        var hex = [
-            pad2(convertDecimalToHex(a)),
-            pad2(mathRound(r).toString(16)),
-            pad2(mathRound(g).toString(16)),
-            pad2(mathRound(b).toString(16))
-        ];
-
-        return hex.join("");
-    }
-
-// `equals`
-// Can be called with any tinycolor input
-tinycolor.equals = function (color1, color2) {
-    if (!color1 || !color2) { return false; }
-    return tinycolor(color1).toRgbString() == tinycolor(color2).toRgbString();
-};
-tinycolor.random = function() {
-    return tinycolor.fromRatio({
-        r: mathRandom(),
-        g: mathRandom(),
-        b: mathRandom()
-    });
-};
-
-
-// Modification Functions
-// ----------------------
-// Thanks to less.js for some of the basics here
-// <https://github.com/cloudhead/less.js/blob/master/lib/less/functions.js>
-
-function desaturate(color, amount) {
-    amount = (amount === 0) ? 0 : (amount || 10);
-    var hsl = tinycolor(color).toHsl();
-    hsl.s -= amount / 100;
-    hsl.s = clamp01(hsl.s);
-    return tinycolor(hsl);
-}
-
-function saturate(color, amount) {
-    amount = (amount === 0) ? 0 : (amount || 10);
-    var hsl = tinycolor(color).toHsl();
-    hsl.s += amount / 100;
-    hsl.s = clamp01(hsl.s);
-    return tinycolor(hsl);
-}
-
-function greyscale(color) {
-    return tinycolor(color).desaturate(100);
-}
-
-function lighten (color, amount) {
-    amount = (amount === 0) ? 0 : (amount || 10);
-    var hsl = tinycolor(color).toHsl();
-    hsl.l += amount / 100;
-    hsl.l = clamp01(hsl.l);
-    return tinycolor(hsl);
-}
-
-function brighten(color, amount) {
-    amount = (amount === 0) ? 0 : (amount || 10);
-    var rgb = tinycolor(color).toRgb();
-    rgb.r = mathMax(0, mathMin(255, rgb.r - mathRound(255 * - (amount / 100))));
-    rgb.g = mathMax(0, mathMin(255, rgb.g - mathRound(255 * - (amount / 100))));
-    rgb.b = mathMax(0, mathMin(255, rgb.b - mathRound(255 * - (amount / 100))));
-    return tinycolor(rgb);
-}
-
-function darken (color, amount) {
-    amount = (amount === 0) ? 0 : (amount || 10);
-    var hsl = tinycolor(color).toHsl();
-    hsl.l -= amount / 100;
-    hsl.l = clamp01(hsl.l);
-    return tinycolor(hsl);
-}
-
-// Spin takes a positive or negative amount within [-360, 360] indicating the change of hue.
-// Values outside of this range will be wrapped into this range.
-function spin(color, amount) {
-    var hsl = tinycolor(color).toHsl();
-    var hue = (mathRound(hsl.h) + amount) % 360;
-    hsl.h = hue < 0 ? 360 + hue : hue;
-    return tinycolor(hsl);
-}
-
-// Combination Functions
-// ---------------------
-// Thanks to jQuery xColor for some of the ideas behind these
-// <https://github.com/infusion/jQuery-xcolor/blob/master/jquery.xcolor.js>
-
-function complement(color) {
-    var hsl = tinycolor(color).toHsl();
-    hsl.h = (hsl.h + 180) % 360;
-    return tinycolor(hsl);
-}
-
-function triad(color) {
-    var hsl = tinycolor(color).toHsl();
-    var h = hsl.h;
-    return [
-        tinycolor(color),
-        tinycolor({ h: (h + 120) % 360, s: hsl.s, l: hsl.l }),
-        tinycolor({ h: (h + 240) % 360, s: hsl.s, l: hsl.l })
-    ];
-}
-
-function tetrad(color) {
-    var hsl = tinycolor(color).toHsl();
-    var h = hsl.h;
-    return [
-        tinycolor(color),
-        tinycolor({ h: (h + 90) % 360, s: hsl.s, l: hsl.l }),
-        tinycolor({ h: (h + 180) % 360, s: hsl.s, l: hsl.l }),
-        tinycolor({ h: (h + 270) % 360, s: hsl.s, l: hsl.l })
-    ];
-}
-
-function splitcomplement(color) {
-    var hsl = tinycolor(color).toHsl();
-    var h = hsl.h;
-    return [
-        tinycolor(color),
-        tinycolor({ h: (h + 72) % 360, s: hsl.s, l: hsl.l}),
-        tinycolor({ h: (h + 216) % 360, s: hsl.s, l: hsl.l})
-    ];
-}
-
-function analogous(color, results, slices) {
-    results = results || 6;
-    slices = slices || 30;
-
-    var hsl = tinycolor(color).toHsl();
-    var part = 360 / slices;
-    var ret = [tinycolor(color)];
-
-    for (hsl.h = ((hsl.h - (part * results >> 1)) + 720) % 360; --results; ) {
-        hsl.h = (hsl.h + part) % 360;
-        ret.push(tinycolor(hsl));
-    }
-    return ret;
-}
-
-function monochromatic(color, results) {
-    results = results || 6;
-    var hsv = tinycolor(color).toHsv();
-    var h = hsv.h, s = hsv.s, v = hsv.v;
-    var ret = [];
-    var modification = 1 / results;
-
-    while (results--) {
-        ret.push(tinycolor({ h: h, s: s, v: v}));
-        v = (v + modification) % 1;
-    }
-
-    return ret;
-}
-
-// Utility Functions
-// ---------------------
-
-tinycolor.mix = function(color1, color2, amount) {
-    amount = (amount === 0) ? 0 : (amount || 50);
-
-    var rgb1 = tinycolor(color1).toRgb();
-    var rgb2 = tinycolor(color2).toRgb();
-
-    var p = amount / 100;
-    var w = p * 2 - 1;
-    var a = rgb2.a - rgb1.a;
-
-    var w1;
-
-    if (w * a == -1) {
-        w1 = w;
-    } else {
-        w1 = (w + a) / (1 + w * a);
-    }
-
-    w1 = (w1 + 1) / 2;
-
-    var w2 = 1 - w1;
-
-    var rgba = {
-        r: rgb2.r * w1 + rgb1.r * w2,
-        g: rgb2.g * w1 + rgb1.g * w2,
-        b: rgb2.b * w1 + rgb1.b * w2,
-        a: rgb2.a * p  + rgb1.a * (1 - p)
-    };
-
-    return tinycolor(rgba);
-};
-
-
-// Readability Functions
-// ---------------------
-// <http://www.w3.org/TR/2008/REC-WCAG20-20081211/#contrast-ratiodef (WCAG Version 2)
-
-// `contrast`
-// Analyze the 2 colors and returns the color contrast defined by (WCAG Version 2)
-tinycolor.readability = function(color1, color2) {
-    var c1 = tinycolor(color1);
-    var c2 = tinycolor(color2);
-    return (Math.max(c1.getLuminance(),c2.getLuminance())+0.05) / (Math.min(c1.getLuminance(),c2.getLuminance())+0.05);
-};
-
-// `isReadable`
-// Ensure that foreground and background color combinations meet WCAG2 guidelines.
-// The third argument is an optional Object.
-//      the 'level' property states 'AA' or 'AAA' - if missing or invalid, it defaults to 'AA';
-//      the 'size' property states 'large' or 'small' - if missing or invalid, it defaults to 'small'.
-// If the entire object is absent, isReadable defaults to {level:"AA",size:"small"}.
-
-// *Example*
-//    tinycolor.isReadable("#000", "#111") => false
-//    tinycolor.isReadable("#000", "#111",{level:"AA",size:"large"}) => false
-
-tinycolor.isReadable = function(color1, color2, wcag2) {
-    var readability = tinycolor.readability(color1, color2);
-    var wcag2Parms, out;
-
-    out = false;
-
-    wcag2Parms = validateWCAG2Parms(wcag2);
-    switch (wcag2Parms.level + wcag2Parms.size) {
-        case "AAsmall":
-        case "AAAlarge":
-            out = readability >= 4.5;
-            break;
-        case "AAlarge":
-            out = readability >= 3;
-            break;
-        case "AAAsmall":
-            out = readability >= 7;
-            break;
-    }
-    return out;
-
-};
-
-// `mostReadable`
-// Given a base color and a list of possible foreground or background
-// colors for that base, returns the most readable color.
-// Optionally returns Black or White if the most readable color is unreadable.
-// *Example*
-//    tinycolor.mostReadable(tinycolor.mostReadable("#123", ["#124", "#125"],{includeFallbackColors:false}).toHexString(); // "#112255"
-//    tinycolor.mostReadable(tinycolor.mostReadable("#123", ["#124", "#125"],{includeFallbackColors:true}).toHexString();  // "#ffffff"
-//    tinycolor.mostReadable("#a8015a", ["#faf3f3"],{includeFallbackColors:true,level:"AAA",size:"large"}).toHexString(); // "#faf3f3"
-//    tinycolor.mostReadable("#a8015a", ["#faf3f3"],{includeFallbackColors:true,level:"AAA",size:"small"}).toHexString(); // "#ffffff"
-
-
-tinycolor.mostReadable = function(baseColor, colorList, args) {
-    var bestColor = null;
-    var bestScore = 0;
-    var readability;
-    var includeFallbackColors, level, size ;
-    args = args || {};
-    includeFallbackColors = args.includeFallbackColors ;
-    level = args.level;
-    size = args.size;
-
-    for (var i= 0; i < colorList.length ; i++) {
-        readability = tinycolor.readability(baseColor, colorList[i]);
-        if (readability > bestScore) {
-            bestScore = readability;
-            bestColor = tinycolor(colorList[i]);
-        }
-    }
-
-    if (tinycolor.isReadable(baseColor, bestColor, {"level":level,"size":size}) || !includeFallbackColors) {
-        return bestColor;
-    }
-    else {
-        args.includeFallbackColors=false;
-        return tinycolor.mostReadable(baseColor,["#fff", "#000"],args);
-    }
-};
-
-
-// Big List of Colors
-// ------------------
-// <http://www.w3.org/TR/css3-color/#svg-color>
-var names = tinycolor.names = {
-    aliceblue: "f0f8ff",
-    antiquewhite: "faebd7",
-    aqua: "0ff",
-    aquamarine: "7fffd4",
-    azure: "f0ffff",
-    beige: "f5f5dc",
-    bisque: "ffe4c4",
-    black: "000",
-    blanchedalmond: "ffebcd",
-    blue: "00f",
-    blueviolet: "8a2be2",
-    brown: "a52a2a",
-    burlywood: "deb887",
-    burntsienna: "ea7e5d",
-    cadetblue: "5f9ea0",
-    chartreuse: "7fff00",
-    chocolate: "d2691e",
-    coral: "ff7f50",
-    cornflowerblue: "6495ed",
-    cornsilk: "fff8dc",
-    crimson: "dc143c",
-    cyan: "0ff",
-    darkblue: "00008b",
-    darkcyan: "008b8b",
-    darkgoldenrod: "b8860b",
-    darkgray: "a9a9a9",
-    darkgreen: "006400",
-    darkgrey: "a9a9a9",
-    darkkhaki: "bdb76b",
-    darkmagenta: "8b008b",
-    darkolivegreen: "556b2f",
-    darkorange: "ff8c00",
-    darkorchid: "9932cc",
-    darkred: "8b0000",
-    darksalmon: "e9967a",
-    darkseagreen: "8fbc8f",
-    darkslateblue: "483d8b",
-    darkslategray: "2f4f4f",
-    darkslategrey: "2f4f4f",
-    darkturquoise: "00ced1",
-    darkviolet: "9400d3",
-    deeppink: "ff1493",
-    deepskyblue: "00bfff",
-    dimgray: "696969",
-    dimgrey: "696969",
-    dodgerblue: "1e90ff",
-    firebrick: "b22222",
-    floralwhite: "fffaf0",
-    forestgreen: "228b22",
-    fuchsia: "f0f",
-    gainsboro: "dcdcdc",
-    ghostwhite: "f8f8ff",
-    gold: "ffd700",
-    goldenrod: "daa520",
-    gray: "808080",
-    green: "008000",
-    greenyellow: "adff2f",
-    grey: "808080",
-    honeydew: "f0fff0",
-    hotpink: "ff69b4",
-    indianred: "cd5c5c",
-    indigo: "4b0082",
-    ivory: "fffff0",
-    khaki: "f0e68c",
-    lavender: "e6e6fa",
-    lavenderblush: "fff0f5",
-    lawngreen: "7cfc00",
-    lemonchiffon: "fffacd",
-    lightblue: "add8e6",
-    lightcoral: "f08080",
-    lightcyan: "e0ffff",
-    lightgoldenrodyellow: "fafad2",
-    lightgray: "d3d3d3",
-    lightgreen: "90ee90",
-    lightgrey: "d3d3d3",
-    lightpink: "ffb6c1",
-    lightsalmon: "ffa07a",
-    lightseagreen: "20b2aa",
-    lightskyblue: "87cefa",
-    lightslategray: "789",
-    lightslategrey: "789",
-    lightsteelblue: "b0c4de",
-    lightyellow: "ffffe0",
-    lime: "0f0",
-    limegreen: "32cd32",
-    linen: "faf0e6",
-    magenta: "f0f",
-    maroon: "800000",
-    mediumaquamarine: "66cdaa",
-    mediumblue: "0000cd",
-    mediumorchid: "ba55d3",
-    mediumpurple: "9370db",
-    mediumseagreen: "3cb371",
-    mediumslateblue: "7b68ee",
-    mediumspringgreen: "00fa9a",
-    mediumturquoise: "48d1cc",
-    mediumvioletred: "c71585",
-    midnightblue: "191970",
-    mintcream: "f5fffa",
-    mistyrose: "ffe4e1",
-    moccasin: "ffe4b5",
-    navajowhite: "ffdead",
-    navy: "000080",
-    oldlace: "fdf5e6",
-    olive: "808000",
-    olivedrab: "6b8e23",
-    orange: "ffa500",
-    orangered: "ff4500",
-    orchid: "da70d6",
-    palegoldenrod: "eee8aa",
-    palegreen: "98fb98",
-    paleturquoise: "afeeee",
-    palevioletred: "db7093",
-    papayawhip: "ffefd5",
-    peachpuff: "ffdab9",
-    peru: "cd853f",
-    pink: "ffc0cb",
-    plum: "dda0dd",
-    powderblue: "b0e0e6",
-    purple: "800080",
-    rebeccapurple: "663399",
-    red: "f00",
-    rosybrown: "bc8f8f",
-    royalblue: "4169e1",
-    saddlebrown: "8b4513",
-    salmon: "fa8072",
-    sandybrown: "f4a460",
-    seagreen: "2e8b57",
-    seashell: "fff5ee",
-    sienna: "a0522d",
-    silver: "c0c0c0",
-    skyblue: "87ceeb",
-    slateblue: "6a5acd",
-    slategray: "708090",
-    slategrey: "708090",
-    snow: "fffafa",
-    springgreen: "00ff7f",
-    steelblue: "4682b4",
-    tan: "d2b48c",
-    teal: "008080",
-    thistle: "d8bfd8",
-    tomato: "ff6347",
-    turquoise: "40e0d0",
-    violet: "ee82ee",
-    wheat: "f5deb3",
-    white: "fff",
-    whitesmoke: "f5f5f5",
-    yellow: "ff0",
-    yellowgreen: "9acd32"
-};
-
-// Make it easy to access colors via `hexNames[hex]`
-var hexNames = tinycolor.hexNames = flip(names);
-
-
-// Utilities
-// ---------
-
-// `{ 'name1': 'val1' }` becomes `{ 'val1': 'name1' }`
-function flip(o) {
-    var flipped = { };
-    for (var i in o) {
-        if (o.hasOwnProperty(i)) {
-            flipped[o[i]] = i;
-        }
-    }
-    return flipped;
-}
-
-// Return a valid alpha value [0,1] with all invalid values being set to 1
-function boundAlpha(a) {
-    a = parseFloat(a);
-
-    if (isNaN(a) || a < 0 || a > 1) {
-        a = 1;
-    }
-
-    return a;
-}
-
-// Take input from [0, n] and return it as [0, 1]
-function bound01(n, max) {
-    if (isOnePointZero(n)) { n = "100%"; }
-
-    var processPercent = isPercentage(n);
-    n = mathMin(max, mathMax(0, parseFloat(n)));
-
-    // Automatically convert percentage into number
-    if (processPercent) {
-        n = parseInt(n * max, 10) / 100;
-    }
-
-    // Handle floating point rounding errors
-    if ((math.abs(n - max) < 0.000001)) {
-        return 1;
-    }
-
-    // Convert into [0, 1] range if it isn't already
-    return (n % max) / parseFloat(max);
-}
-
-// Force a number between 0 and 1
-function clamp01(val) {
-    return mathMin(1, mathMax(0, val));
-}
-
-// Parse a base-16 hex value into a base-10 integer
-function parseIntFromHex(val) {
-    return parseInt(val, 16);
-}
-
-// Need to handle 1.0 as 100%, since once it is a number, there is no difference between it and 1
-// <http://stackoverflow.com/questions/7422072/javascript-how-to-detect-number-as-a-decimal-including-1-0>
-function isOnePointZero(n) {
-    return typeof n == "string" && n.indexOf('.') != -1 && parseFloat(n) === 1;
-}
-
-// Check to see if string passed in is a percentage
-function isPercentage(n) {
-    return typeof n === "string" && n.indexOf('%') != -1;
-}
-
-// Force a hex value to have 2 characters
-function pad2(c) {
-    return c.length == 1 ? '0' + c : '' + c;
-}
-
-// Replace a decimal with it's percentage value
-function convertToPercentage(n) {
-    if (n <= 1) {
-        n = (n * 100) + "%";
-    }
-
-    return n;
-}
-
-// Converts a decimal to a hex value
-function convertDecimalToHex(d) {
-    return Math.round(parseFloat(d) * 255).toString(16);
-}
-// Converts a hex value to a decimal
-function convertHexToDecimal(h) {
-    return (parseIntFromHex(h) / 255);
-}
-
-var matchers = (function() {
-
-    // <http://www.w3.org/TR/css3-values/#integers>
-    var CSS_INTEGER = "[-\\+]?\\d+%?";
-
-    // <http://www.w3.org/TR/css3-values/#number-value>
-    var CSS_NUMBER = "[-\\+]?\\d*\\.\\d+%?";
-
-    // Allow positive/negative integer/number.  Don't capture the either/or, just the entire outcome.
-    var CSS_UNIT = "(?:" + CSS_NUMBER + ")|(?:" + CSS_INTEGER + ")";
-
-    // Actual matching.
-    // Parentheses and commas are optional, but not required.
-    // Whitespace can take the place of commas or opening paren
-    var PERMISSIVE_MATCH3 = "[\\s|\\(]+(" + CSS_UNIT + ")[,|\\s]+(" + CSS_UNIT + ")[,|\\s]+(" + CSS_UNIT + ")\\s*\\)?";
-    var PERMISSIVE_MATCH4 = "[\\s|\\(]+(" + CSS_UNIT + ")[,|\\s]+(" + CSS_UNIT + ")[,|\\s]+(" + CSS_UNIT + ")[,|\\s]+(" + CSS_UNIT + ")\\s*\\)?";
-
-    return {
-        rgb: new RegExp("rgb" + PERMISSIVE_MATCH3),
-        rgba: new RegExp("rgba" + PERMISSIVE_MATCH4),
-        hsl: new RegExp("hsl" + PERMISSIVE_MATCH3),
-        hsla: new RegExp("hsla" + PERMISSIVE_MATCH4),
-        hsv: new RegExp("hsv" + PERMISSIVE_MATCH3),
-        hsva: new RegExp("hsva" + PERMISSIVE_MATCH4),
-        hex3: /^([0-9a-fA-F]{1})([0-9a-fA-F]{1})([0-9a-fA-F]{1})$/,
-        hex6: /^([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/,
-        hex8: /^([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/
-    };
-})();
-
-// `stringInputToObject`
-// Permissive string parsing.  Take in a number of formats, and output an object
-// based on detected format.  Returns `{ r, g, b }` or `{ h, s, l }` or `{ h, s, v}`
-function stringInputToObject(color) {
-
-    color = color.replace(trimLeft,'').replace(trimRight, '').toLowerCase();
-    var named = false;
-    if (names[color]) {
-        color = names[color];
-        named = true;
-    }
-    else if (color == 'transparent') {
-        return { r: 0, g: 0, b: 0, a: 0, format: "name" };
-    }
-
-    // Try to match string input using regular expressions.
-    // Keep most of the number bounding out of this function - don't worry about [0,1] or [0,100] or [0,360]
-    // Just return an object and let the conversion functions handle that.
-    // This way the result will be the same whether the tinycolor is initialized with string or object.
-    var match;
-    if ((match = matchers.rgb.exec(color))) {
-        return { r: match[1], g: match[2], b: match[3] };
-    }
-    if ((match = matchers.rgba.exec(color))) {
-        return { r: match[1], g: match[2], b: match[3], a: match[4] };
-    }
-    if ((match = matchers.hsl.exec(color))) {
-        return { h: match[1], s: match[2], l: match[3] };
-    }
-    if ((match = matchers.hsla.exec(color))) {
-        return { h: match[1], s: match[2], l: match[3], a: match[4] };
-    }
-    if ((match = matchers.hsv.exec(color))) {
-        return { h: match[1], s: match[2], v: match[3] };
-    }
-    if ((match = matchers.hsva.exec(color))) {
-        return { h: match[1], s: match[2], v: match[3], a: match[4] };
-    }
-    if ((match = matchers.hex8.exec(color))) {
-        return {
-            a: convertHexToDecimal(match[1]),
-            r: parseIntFromHex(match[2]),
-            g: parseIntFromHex(match[3]),
-            b: parseIntFromHex(match[4]),
-            format: named ? "name" : "hex8"
-        };
-    }
-    if ((match = matchers.hex6.exec(color))) {
-        return {
-            r: parseIntFromHex(match[1]),
-            g: parseIntFromHex(match[2]),
-            b: parseIntFromHex(match[3]),
-            format: named ? "name" : "hex"
-        };
-    }
-    if ((match = matchers.hex3.exec(color))) {
-        return {
-            r: parseIntFromHex(match[1] + '' + match[1]),
-            g: parseIntFromHex(match[2] + '' + match[2]),
-            b: parseIntFromHex(match[3] + '' + match[3]),
-            format: named ? "name" : "hex"
-        };
-    }
-
-    return false;
-}
-
-function validateWCAG2Parms(parms) {
-    // return valid WCAG2 parms for isReadable.
-    // If input parms are invalid, return {"level":"AA", "size":"small"}
-    var level, size;
-    parms = parms || {"level":"AA", "size":"small"};
-    level = (parms.level || "AA").toUpperCase();
-    size = (parms.size || "small").toLowerCase();
-    if (level !== "AA" && level !== "AAA") {
-        level = "AA";
-    }
-    if (size !== "small" && size !== "large") {
-        size = "small";
-    }
-    return {"level":level, "size":size};
-}
-// Node: Export function
-if (typeof module !== "undefined" && module.exports) {
-    module.exports = tinycolor;
-}
-// AMD/requirejs: Define the module
-else if (typeof define === 'function' && define.amd) {
-    define(function () {return tinycolor;});
-}
-// Browser: Expose to window
-else {
-    window.tinycolor = tinycolor;
-}
-
-})();
-
-},{}],20:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -47117,21 +41623,20 @@ else {
   }
 }.call(this));
 
-},{}],21:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 (function (global){
 'use strict';
 
-var _        = require('underscore');
-var THREE    = require('three');
-var Stats    = require('stats.js');
-var Dat      = require('dat-gui');
-var models   = require('../models');
-
-var Building = require('../building/building');
+var _              = require('underscore');
+var THREE          = require('three');
+var Stats          = require('stats.js');
+var Dat            = require('dat-gui');
+var models         = require('../models');
+var BuildingWorker = require('../building/buildingWorker');
+var queue          = require('../util/queue');
 
 global.THREE = THREE;
 
-var BuildingWorker = require('../building/buildingWorker');
 require('../plugins/MTLLoader');
 require('../plugins/OBJMTLLoader');
 require('../plugins/ObjectLoader');
@@ -47175,27 +41680,9 @@ scene.add(buildingGroup);
 
 models.load(function() {
 
-  var buildingModels = _.chain(models.cache)
-    .pick([
-      'Plate_Wood_01',
-      'Wood_Door_Round_01',
-      'Wood_Window_Round_01',
-      'Wood_Wall_01',
-      'Wood_Wall_Double_Cross_01',
-      'Wood_Wall_Cross_01',
-      'Banner_Short_01',
-      'Shield_Green_01',
-      'Roof_Point_Green_01',
-      'Roof_Straight_Green_01',
-      'Roof_Slant_Green_01',
-      'Roof_Flat_Green_01',
-      'Wood_Pole_01',
-      'Grey_Short_Wall_01'
-    ])
-    .mapObject(function(object) {
-      return object.toJSON();
-    })
-    .value();
+  BuildingWorker.setModels(_.mapObject(models.cache, function(model) {
+    return model.toJSON();
+  }));
 
   var building = {
     width: 3,
@@ -47227,13 +41714,20 @@ models.load(function() {
 
     generate: function() {
       var options = _.omit(building, 'generate', 'randomSeed');
-
       buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
-      BuildingWorker.generate(options, buildingModels, function(err, json) {
-        var mesh = loader.parse(json);
 
-        buildingGroup.add(mesh);
-      });
+      var func = _.bind(function(cb) {
+        BuildingWorker.generate(options, function(err, json) {
+          var mesh = loader.parse(json);
+
+          buildingGroup.add(mesh);
+
+          cb();
+        });
+      }, this);
+
+      queue.push(func);
+
     } 
   };
 
@@ -47267,6 +41761,8 @@ models.load(function() {
 var render = function () {
   stats.begin();
 
+  queue.start();
+
   controls.update();
   
   light.position.set(camera.position.x, camera.position.y, camera.position.z);
@@ -47279,444 +41775,7 @@ var render = function () {
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../building/building":22,"../building/buildingWorker":23,"../models":25,"../plugins/MTLLoader":27,"../plugins/OBJMTLLoader":28,"../plugins/ObjectLoader":29,"../plugins/OrbitControls":30,"dat-gui":2,"stats.js":17,"three":18,"underscore":20}],22:[function(require,module,exports){
-'use strict';
-
-var _                = require('underscore');
-var THREE            = require('three');
-var FastSimplexNoise = require('fast-simplex-noise');
-var tinycolor        = require('tinycolor2');
-var Chance           = require('chance');
-var seedrandom       = require('seedrandom');
-var models           = require('../models');
-var Voxel            = require('./voxel');
-
-var X = 3;
-var Y = 2.5;
-var Z = 3;
-
-var chance = new Chance();
-
-var colors = {
-  'Wood': ['#4C3A1E', '#403019', '#332714', '#514534', '#46342D', '#2E302A'],
-  'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-  'RedCotton': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-  'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B'],
-};
-
-var index = 0;
-
-var Building = function(parent, x, y, width, height, depth) {
-  this.parent = parent;
-  this.index = index++;
-
-  this.amplitude = 1;
-  this.frequency = 0.08;
-  this.octaves = 16;
-  this.persistence = 0.5;
-
-  this.solidChance = 0.65;
-  this.roofPointChance = 0.6;
-  this.wallWindowChance = 0.3;
-  this.wallDoorChance = 0.1;
-  this.bannerChance = 0.1;
-  this.shieldChance = 0.1;
-  this.fenceChance = 0.4;
-
-  this.heightDampener = 0.125;
-
-  this.seed = 0;
-  this.randomSeed();
-
-  this.showDebug = false;
-
-  this.x = x;
-  this.y = y;
-  this.width = width;
-  this.height = height;
-  this.depth = depth;
-
-  this.group = new THREE.Group();
-  this.debug = new THREE.Group();
-};
-
-Building.prototype.isSolid = function(x, y, z) {
-  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
-    return false;
-  }
-
-  var n = (this.noiseGen.get3DNoise(x, y, z) + 1) / 2;
-  n = n - y * this.heightDampener;
-  n = Math.max(n, 0);
-
-  var solid = n > (1 - this.solidChance);
-
-  return solid; 
-};
-
-Building.prototype.isBorder = function(x, y, z) {
-  if(x === 0 || x === this.width || z === 0 || z === this.depth || y === 0 || y === this.height) {
-    return true;
-  }
-
-  return false;
-};
-
-Building.prototype.isOutside = function(x, y, z) {
-  if(x < 0 || x >= this.width || z < 0 || z >= this.depth || y < 0 || y >= this.height) {
-    return true;
-  }
-
-  return false;
-};
-
-Building.prototype.generate = function() {
-  console.time('building.generate.' + this.index);
-  var self = this;
-
-  this.rng = seedrandom(this.seed);
-  chance.random = this.rng;
-
-  this.noiseGen = new FastSimplexNoise({ 
-    frequency: this.frequency, 
-    octaves: this.octaves,
-    amplitude: this.amplitude,
-    persistence: this.persistence,
-    random: this.rng
-  });
-
-  this.group.remove.apply(this.group, this.group.children);
-  this.debug.remove.apply(this.debug, this.debug.children);
-
-  this.colors = _.chain(colors)
-    .mapObject(function(colors) { return chance.pick(colors); })
-    .mapObject(function(color) {
-      var rgb = tinycolor(color).toRgb();
-      
-      rgb.r /= 255;
-      rgb.g /= 255;
-      rgb.b /= 255;
-      rgb.hex = color;
-
-      return rgb;
-    })
-    .value();
-
-  var hasFence = this.rng() < this.fenceChance;
-
-  for(var x = 0; x < this.width; x++) {
-    for(var y = 0; y < this.height; y++) {
-      for(var z = 0; z < this.depth; z++) {
-        var voxel = new Voxel(this, x, y, z);
-
-        if(this.showDebug) {
-          this._debugBox(voxel);
-        }
-
-        this._setFloor(voxel);
-        this._setRoof(voxel);
-        this._setWalls(voxel);
-        this._setPillars(voxel);
-
-        if(hasFence) {
-          this._setFence(voxel);
-        }
-      }
-    }
-  }
-
-  var geometry = new THREE.Geometry();
-  var materials = {};
-
-  this.group.updateMatrixWorld();
-
-  this.group.traverse(function(object) {
-    if(object.type === 'Mesh') {
-      object.position.setFromMatrixPosition(object.matrixWorld);
-      object.rotation.setFromRotationMatrix(object.matrixWorld);
-      object.updateMatrix();
-
-      var index = _.chain(materials).keys().indexOf(object.material.name).value();
-
-      if(index === -1) {
-        var material = object.material.clone();
-
-        var color = self.colors[object.material.name];
-        if(color) {
-          material.color.r = color.r;
-          material.color.g = color.g;
-          material.color.b = color.b;
-        }
-
-        materials[object.material.name] = material;
-        index = _.keys(materials).length - 1;
-      }
-
-      geometry.merge(object.geometry, object.matrix, index);
-    }
-  });
-
-  if(this.mesh) {
-    this.parent.remove(this.mesh);
-  }
-
-  this.group.remove.apply(this.group, this.group.children);
-
-  var material = new THREE.MeshFaceMaterial(_.values(materials));
-  this.mesh = new THREE.Mesh(geometry, material);
-  this.mesh.add(this.debug);
-  this.mesh.position.x = this.x;
-  this.mesh.position.z = this.y;
-
-  this.parent.add(this.mesh);
-  
-  console.timeEnd('building.generate.' + this.index);
-};
-
-Building.prototype.randomSeed = function() {
-  this.seed = Math.round(Math.random() * 10000);
-};
-
-Building.prototype.generateRandomSeed = function() {
-  this.randomSeed();
-  this.generate();
-};
-
-Building.prototype._setFloor = function(voxel) {
-  var floor;
-
-  if(voxel.y === 0 && !voxel.solid) {
-    // floor = models.get('Market_Stall_01');
-    // floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
-    // this.group.add(floor);
-  }
-  else if(voxel.solid) {
-    floor = models.get('Plate_Wood_01');
-    floor.position.set(voxel.x * X, voxel.y * Y - 1.25, voxel.z * Z);
-    this.group.add(floor);
-  }
-};
-
-Building.prototype._setRoof = function(voxel) {
-  var roof;
-  var position = new THREE.Vector3(voxel.x * X, voxel.y * Y, voxel.z * Z);
-  var rotation = new THREE.Euler(0, 0, 0, 'XYZ');
-
-  if(voxel.solid && !voxel.up) {
-    if(!voxel.north && !voxel.east && !voxel.south && !voxel.west) {
-      if(this.rng() < this.roofPointChance) {
-        roof = models.get('Roof_Point_Green_01');
-        position.y += 1.2;
-      }
-      else {
-        roof = models.get('Roof_Straight_Green_01');
-        position.y += 1.2;
-        rotation.y = (this.rng() > 0.5) ? Math.PI / 2 : 0;
-      }
-    }
-    else if(!voxel.south && !voxel.north && (voxel.east || voxel.west)) {
-      roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.25;
-      rotation.y = Math.PI / 2;
-    }
-    else if(!voxel.west && !voxel.east && (voxel.north || voxel.south)) {
-      roof = models.get('Roof_Straight_Green_01');
-      position.y += 1.25;
-    }
-    else if(!voxel.south && this.depth > this.width) {
-      roof = models.get('Roof_Slant_Green_01');
-      position.y += 1.2;
-    }
-    else if(!voxel.north && this.depth > this.width) {
-      roof = models.get('Roof_Slant_Green_01');
-      position.y += 1.2;
-      rotation.y = Math.PI;
-    }
-    else if(!voxel.east && this.depth <= this.width) {
-      roof = models.get('Roof_Slant_Green_01');
-      position.y += 1.2;
-      rotation.y = Math.PI + Math.PI / 2;
-    }
-    else if(!voxel.west && this.depth <= this.width) {
-      roof = models.get('Roof_Slant_Green_01');
-      position.y += 1.2;
-      rotation.y = Math.PI / 2;
-    }
-    else {
-      roof = models.get('Roof_Flat_Green_01');
-      position.y += 1.2;
-    }
-
-    if(roof) {
-      roof.position.set(position.x, position.y, position.z);
-      roof.rotation.set(rotation.x, rotation.y, rotation.z, rotation.order);
-      this.group.add(roof);
-    }
-  }
-};
-
-Building.prototype._setWalls = function(voxel) {
-  if(!voxel.solid) { return; }  
-  
-  var type;
-  var wall;
-  var sides = [
-    [voxel.north, -1, 0, Math.PI],
-    [voxel.south, 1, 0, 0],
-    [voxel.west, 0, -1, Math.PI / 2], 
-    [voxel.east, 0, 1, Math.PI / -2]
-  ];
-
-  for(var i = 0; i < sides.length; i++) {
-    var side = sides[i];
-
-    if(!side[0]) {
-      if(voxel.y === 0 && this.rng() < this.wallDoorChance) {
-        wall = models.get('Wood_Door_Round_01');
-      }
-      else if(this.rng() < this.wallWindowChance) {
-        wall = models.get('Wood_Window_Round_01');
-      }
-      else {
-
-        type = chance.pick([
-          'Wood_Wall_01', 
-          'Wood_Wall_Double_Cross_01', 
-          'Wood_Wall_Cross_01'
-        ]);
-        wall = models.get(type);
-
-        if(type === 'Wood_Wall_01' && this.rng() < this.bannerChance) {
-          var banner = models.get('Banner_Short_01');
-
-          banner.rotation.y = Math.PI / 2;
-          banner.position.x = 0.2;
-          banner.position.y = 0.1;
-
-          wall.add(banner);
-        }
-        else if(type === 'Wood_Wall_01' && this.rng() < this.shieldChance) {
-          var shield = models.get('Shield_Green_01');
-
-          shield.rotation.y = 0; 
-          shield.position.x = 0.2;
-          shield.position.y = 0.8;
-
-          wall.add(shield);
-        }
-      }
-
-      wall.position.x = voxel.x * X + 1.25 * side[1];
-      wall.position.y = voxel.y * Y - 0.95;
-      wall.position.z = voxel.z * Z + 1.25 * side[2];
-      wall.rotation.y = side[3];
-
-      this.group.add(wall);
-    }
-  }
-};
-
-Building.prototype._setPillars = function(voxel) {
-  if(voxel.solid) { return; }
-
-  if(voxel.ceiling) {
-    var pillar; 
-    var pillars = {
-      northWest: { place: true, x: -1.2, z: -1.2, rot: 0 },
-      northEast: { place: true, x: -1.2, z: 1.2, rot: Math.PI / 2 },
-      southWest: { place: true, x: 1.2, z: -1.2, rot: Math.PI / -2 },
-      southEast: { place: true, x: 1.2, z: 1.2, rot: Math.PI }
-    };
-
-    if(voxel.north && voxel.west) {
-      pillars.northWest.place = false;
-    }
-    if(voxel.north && voxel.east) {
-      pillars.northEast.place = false;
-    }
-    if(voxel.south && voxel.west) {
-      pillars.southWest.place = false;
-    }
-    if(voxel.south && voxel.east) {
-      pillars.southEast.place = false;
-    }
-
-    _.each(pillars, function(value) {
-      if(!value.place) { 
-        return;
-      }
-
-      pillar = models.get('Wood_Pole_01');
-      pillar.position.x = voxel.x * X + value.x;
-      pillar.position.y = voxel.y * Y - 1.25;
-      pillar.position.z = voxel.z * Z + value.z;
-      pillar.rotation.y = value.rot;
-      this.group.add(pillar);
-    }, this);
-  }
-};
-
-Building.prototype._setFence = function(voxel) {
-  var material, geometry, mesh;
-
-  if(voxel.y === 0 && voxel.border && !voxel.solid && !voxel.ceiling) {
-    var fence;
-    var sides = [
-      [voxel.north, -1, 0, 0],
-      [voxel.south, 1, 0, Math.PI],
-      [voxel.west, 0, -1, Math.PI / -2], 
-      [voxel.east, 0, 1, Math.PI / 2]
-    ];
-
-    for(var i = 0; i < sides.length; i++) {
-      var side = sides[i];
-
-      if(voxel.isOutside(voxel.x + side[1], voxel.y, voxel.z + side[2]) && !side[0]) {
-        fence = models.get('Grey_Short_Wall_01');
-
-        fence.position.x = voxel.x * X + 1.25 * side[1];
-        fence.position.y = voxel.y * Y - 1.25;
-        fence.position.z = voxel.z * Z + 1.25 * side[2];
-        fence.rotation.y = side[3];
-
-        this.group.add(fence);
-      }
-    }
-  }
-};
-
-Building.prototype._debugBox = function(voxel) {
-  var material, geometry, mesh;
-
-  if(voxel.solid) {   
-    material = new THREE.MeshNormalMaterial({ wireframe: true });
-    geometry = new THREE.BoxGeometry(X, Y, Z);
-    mesh = new THREE.Mesh(geometry, material);
-    mesh.name = 'debug';
-
-    mesh.position.x = voxel.x * X;
-    mesh.position.y = voxel.y * Y;
-    mesh.position.z = voxel.z * Z;
-
-    this.debug.add(mesh);
-  }
-  else if(voxel.y === 0) {
-    material = new THREE.MeshNormalMaterial({ wireframe: true });
-    geometry = new THREE.BoxGeometry(X, 0.0001, Z);
-    mesh = new THREE.Mesh(geometry, material);
-    mesh.name = 'debug';
-
-    mesh.position.x = voxel.x * X;
-    mesh.position.y = voxel.y * Y - Y / 2;
-    mesh.position.z = voxel.z * Z;
-
-    this.debug.add(mesh);
-  }
-};
-
-module.exports = Building;
-
-},{"../models":25,"./voxel":24,"chance":1,"fast-simplex-noise":5,"seedrandom":16,"three":18,"tinycolor2":19,"underscore":20}],23:[function(require,module,exports){
+},{"../building/buildingWorker":12,"../models":13,"../plugins/MTLLoader":15,"../plugins/OBJMTLLoader":16,"../plugins/ObjectLoader":17,"../plugins/OrbitControls":18,"../util/queue":19,"dat-gui":1,"stats.js":8,"three":9,"underscore":10}],12:[function(require,module,exports){
 /* global _ */
 /* global operative */
 /* global THREE */
@@ -47750,6 +41809,8 @@ var BuildingWorker = operative({
     'Dark_Stone': [0x767D85, 0x6A6B5F, 0x838577, 0x686157, 0x62554D, 0x626A5B],
   },
 
+  models: {},
+
   index: 0,
 
   templates: {
@@ -47779,12 +41840,16 @@ var BuildingWorker = operative({
     }
   },
 
-  generate: function(options, models, callback) {
+  generate: function(options, callback) {
     this.index += 1;
     console.time('BuildingWorker.generate.' + this.index);
 
     this.options = _.defaults(options, this.templates.standard);
     this.group = new THREE.Group();
+
+    if(_.isEmpty(this.models)) {
+      return callback('no models available. use BuildingWorker.setModels()');
+    }
 
     if(this.options.seed) {
       this.rng = new Math.seedrandom(this.options.seed);
@@ -47792,15 +41857,6 @@ var BuildingWorker = operative({
     else {
       this.rng = Math.random;
     }
-
-    var loader = new THREE.ObjectLoader();
-
-    this.models = _.chain(models)
-      .mapObject(function(model) {
-        return loader.parse(model);
-      })
-      .value();
-
     this.noiseGen = new FastSimplexNoise({ 
       frequency: this.options.frequency, 
       octaves: this.options.octaves,
@@ -47842,6 +41898,16 @@ var BuildingWorker = operative({
     callback(null, mesh.toJSON());
   },
 
+  setModels: function(models) {
+    var loader = new THREE.ObjectLoader();
+
+    this.models = _.chain(models)
+      .mapObject(function(model) {
+        return loader.parse(model);
+      })
+      .value();
+  },
+
   _setFloor: function(voxel) {
     var floor;
 
@@ -47872,8 +41938,6 @@ var BuildingWorker = operative({
 
     for(var i = 0; i < sides.length; i++) {
       var side = sides[i];
-
-      console.log(this.rng());
 
       if(!side[0]) {
         if(voxel.y === 0 && this.rng() < this.options.wallDoorChance) {
@@ -48043,12 +42107,6 @@ var BuildingWorker = operative({
     }
   },
 
-  _getColors: function() {
-    return _.mapObject(this.colors, function(colors) {
-      return colors[Math.floor(this.rng() * colors.length)];
-    }, this);
-  },
-
   _merge: function(colors) {
     var geometry = new THREE.Geometry();
 
@@ -48079,6 +42137,12 @@ var BuildingWorker = operative({
     var mesh = new THREE.Mesh(geometry, material);
 
     return mesh;
+  },
+
+  _getColors: function() {
+    return _.mapObject(this.colors, function(colors) {
+      return colors[Math.floor(this.rng() * colors.length)];
+    }, this);
   },
 
   _debugBox: function(voxel) {
@@ -48194,58 +42258,7 @@ var BuildingWorker = operative({
 }, scripts);
 
 module.exports = BuildingWorker;
-},{}],24:[function(require,module,exports){
-'use strict';
-
-var _ = require('underscore');
-
-var Voxel = function(parent, x, y, z) {
-  var self = this;
-
-  this.isSolid = _.bind(parent.isSolid, parent);
-  this.isBorder = _.bind(parent.isBorder, parent);
-  this.isOutside = _.bind(parent.isOutside, parent);
-  this.x = x;
-  this.y = y;
-  this.z = z;
-
-  this.solid       = this.isSolid(x    , y    , z    );
-  
-  this.up          = this.isSolid(x    , y + 1, z    );
-  this.down        = this.isSolid(x    , y - 1, z    );
-  
-  this.north       = this.isSolid(x - 1, y    , z    );
-  this.northEast   = this.isSolid(x - 1, y    , z + 1);
-  this.east        = this.isSolid(x    , y    , z + 1);
-  this.southEast   = this.isSolid(x + 1, y    , z + 1);
-  this.south       = this.isSolid(x + 1, y    , z    );
-  this.southWest   = this.isSolid(x + 1, y    , z - 1);
-  this.west        = this.isSolid(x    , y    , z - 1);
-  this.northWest   = this.isSolid(x - 1, y    , z - 1);
-  
-  this.upNorth     = this.isSolid(x - 1, y + 1, z    );
-  this.upNorthEast = this.isSolid(x - 1, y + 1, z + 1);
-  this.upEast      = this.isSolid(x    , y + 1, z + 1);
-  this.upSouthEast = this.isSolid(x + 1, y + 1, z + 1);
-  this.upSouth     = this.isSolid(x + 1, y + 1, z    );
-  this.upSouthWest = this.isSolid(x + 1, y + 1, z - 1);
-  this.upWest      = this.isSolid(x    , y + 1, z - 1);
-  this.upNorthWest = this.isSolid(x - 1, y + 1, z - 1);
-
-  this.border = this.isBorder(x, y, z);
-  this.outside = this.isOutside(x, y, z);
-
-  this.ceiling = _.chain(25).times(_.identity)
-    .map(function(i) { return self.isSolid(self.x, self.y + i, self.z); })
-    .some().value();
-
-  this.floor = _.chain(25).times(_.identity)
-    .map(function(i) { return self.isSolid(self.x, self.y - i, self.z); })
-    .some().value();
-};
-
-module.exports = Voxel;
-},{"underscore":20}],25:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -48297,7 +42310,7 @@ exports.toJSON = function(objectName) {
 
 exports.cache = cache;
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./objects":26,"./plugins/MTLLoader":27,"./plugins/OBJMTLLoader":28,"nprogress":15,"three":18,"underscore":20}],26:[function(require,module,exports){
+},{"./objects":14,"./plugins/MTLLoader":15,"./plugins/OBJMTLLoader":16,"nprogress":5,"three":9,"underscore":10}],14:[function(require,module,exports){
 module.exports=[
   "Banner_01",
   "Banner_Short_01",
@@ -48371,7 +42384,7 @@ module.exports=[
   "Wood_Window_Square_01",
   "Wood_Window_Square_Sill_01"
 ]
-},{}],27:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 (function (global){
 /**
  * Loads a Wavefront .mtl file specifying materials
@@ -48825,7 +42838,7 @@ THREE.MTLLoader.nextHighestPowerOfTwo_ = function( x ) {
 THREE.EventDispatcher.prototype.apply( THREE.MTLLoader.prototype );
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],28:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 /**
  * Loads a Wavefront .obj file with materials
  *
@@ -49191,7 +43204,7 @@ THREE.OBJMTLLoader.prototype = {
 };
 
 THREE.EventDispatcher.prototype.apply( THREE.OBJMTLLoader.prototype );
-},{}],29:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -49732,7 +43745,7 @@ THREE.ObjectLoader.prototype = {
   }()
 
 };
-},{}],30:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 /**
  * @author qiao / https://github.com/qiao
  * @author mrdoob / http://mrdoob.com
@@ -50439,4 +44452,17 @@ THREE.OrbitControls = function ( object, domElement ) {
 
 THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
 THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-},{}]},{},[21])
+},{}],19:[function(require,module,exports){
+(function (global){
+'use strict';
+
+var Queue = require('queue');
+
+if(!global.queue) {
+  global.queue = Queue();
+  global.queue.concurrency = 2;
+}
+
+module.exports = global.queue;
+}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"queue":6}]},{},[11])

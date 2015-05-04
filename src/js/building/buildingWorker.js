@@ -31,6 +31,8 @@ var BuildingWorker = operative({
     'Dark_Stone': [0x767D85, 0x6A6B5F, 0x838577, 0x686157, 0x62554D, 0x626A5B],
   },
 
+  models: {},
+
   index: 0,
 
   templates: {
@@ -60,12 +62,16 @@ var BuildingWorker = operative({
     }
   },
 
-  generate: function(options, models, callback) {
+  generate: function(options, callback) {
     this.index += 1;
     console.time('BuildingWorker.generate.' + this.index);
 
     this.options = _.defaults(options, this.templates.standard);
     this.group = new THREE.Group();
+
+    if(_.isEmpty(this.models)) {
+      return callback('no models available. use BuildingWorker.setModels()');
+    }
 
     if(this.options.seed) {
       this.rng = new Math.seedrandom(this.options.seed);
@@ -73,15 +79,6 @@ var BuildingWorker = operative({
     else {
       this.rng = Math.random;
     }
-
-    var loader = new THREE.ObjectLoader();
-
-    this.models = _.chain(models)
-      .mapObject(function(model) {
-        return loader.parse(model);
-      })
-      .value();
-
     this.noiseGen = new FastSimplexNoise({ 
       frequency: this.options.frequency, 
       octaves: this.options.octaves,
@@ -123,6 +120,16 @@ var BuildingWorker = operative({
     callback(null, mesh.toJSON());
   },
 
+  setModels: function(models) {
+    var loader = new THREE.ObjectLoader();
+
+    this.models = _.chain(models)
+      .mapObject(function(model) {
+        return loader.parse(model);
+      })
+      .value();
+  },
+
   _setFloor: function(voxel) {
     var floor;
 
@@ -153,8 +160,6 @@ var BuildingWorker = operative({
 
     for(var i = 0; i < sides.length; i++) {
       var side = sides[i];
-
-      console.log(this.rng());
 
       if(!side[0]) {
         if(voxel.y === 0 && this.rng() < this.options.wallDoorChance) {
@@ -324,12 +329,6 @@ var BuildingWorker = operative({
     }
   },
 
-  _getColors: function() {
-    return _.mapObject(this.colors, function(colors) {
-      return colors[Math.floor(this.rng() * colors.length)];
-    }, this);
-  },
-
   _merge: function(colors) {
     var geometry = new THREE.Geometry();
 
@@ -360,6 +359,12 @@ var BuildingWorker = operative({
     var mesh = new THREE.Mesh(geometry, material);
 
     return mesh;
+  },
+
+  _getColors: function() {
+    return _.mapObject(this.colors, function(colors) {
+      return colors[Math.floor(this.rng() * colors.length)];
+    }, this);
   },
 
   _debugBox: function(voxel) {
