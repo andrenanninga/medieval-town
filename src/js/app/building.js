@@ -104,9 +104,6 @@ models.load(function() {
       BuildingWorker.generate(options, buildingModels, function(err, json) {
         var mesh = loader.parse(json);
 
-        console.log(json);
-        console.log(mesh);
-
         buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
         buildingGroup.add(mesh);
       });

@@ -47225,9 +47225,6 @@ models.load(function() {
       BuildingWorker.generate(options, buildingModels, function(err, json) {
         var mesh = loader.parse(json);
 
-        console.log(json);
-        console.log(mesh);
-
         buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
         buildingGroup.add(mesh);
       });
@@ -47735,10 +47732,14 @@ var BuildingWorker = operative({
   Z: 3,
 
   colors: {
-    'Wood': ['#4C3A1E', '#403019', '#332714', '#514534', '#46342D', '#2E302A'],
-    'Green_Roof': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-    'RedCotton': ['#B7CE82', '#D9C37E', '#759B8A', '#A78765', '#CE6A58'],
-    'Dark_Stone': ['#767D85', '#6A6B5F', '#838577', '#686157', '#62554D', '#626A5B'],
+    'Debug': [0xFF1493],
+    'Black': [0x000000],
+    'White': [0xffffff],
+    'Wood': [0x4C3A1E, 0x403019, 0x332714, 0x514534, 0x46342D, 0x2E302A],
+    'Green_Roof': [0xB7CE82, 0xD9C37E, 0x759B8A, 0xA78765, 0xCE6A58],
+    'Red_Cotton': [0x683131],
+    'Red_Roof': [0x7E3C3C],
+    'Dark_Stone': [0x767D85, 0x6A6B5F, 0x838577, 0x686157, 0x62554D, 0x626A5B],
   },
 
   index: 0,
@@ -47802,14 +47803,15 @@ var BuildingWorker = operative({
           if(this.options.debug) {
             this._debugBox(voxel);
           }
+          else {
+            this._setFloor(voxel);
+            this._setWalls(voxel);
+            this._setRoof(voxel);
+            this._setPillars(voxel);
 
-          this._setFloor(voxel);
-          this._setWalls(voxel);
-          this._setRoof(voxel);
-          this._setPillars(voxel);
-
-          if(hasFence) {
-            this._setFence(voxel);
+            if(hasFence) {
+              this._setFence(voxel);
+            }
           }
         }
       }
@@ -48022,23 +48024,15 @@ var BuildingWorker = operative({
   _getColors: function() {
     return _.chain(this.colors)
       .mapObject(function(colors) { return _.sample(colors); })
-      .mapObject(function(color) {
-        var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
-        
-        var rgb = {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16)
-        };
-
-        return rgb;
-      })
       .value();
   },
 
   _merge: function(colors) {
     var geometry = new THREE.Geometry();
-    var materials = {};
+
+    this.group.position.x = -this.options.width * this.X / 2 + this.X / 2;
+    this.group.position.y = this.Y / 2;
+    this.group.position.z = -this.options.depth * this.Z / 2 + this.Z / 2;
 
     this.group.updateMatrixWorld();
 
@@ -48048,27 +48042,18 @@ var BuildingWorker = operative({
         object.rotation.setFromRotationMatrix(object.matrixWorld);
         object.updateMatrix();
 
-        var index = _.chain(materials).keys().indexOf(object.material.name).value();
+        var color = colors[object.material.name];
 
-        if(index === -1) {
-          var material = object.material.clone();
-
-          var color = colors[object.material.name];
-          if(color) {
-            material.color.r = color.r;
-            material.color.g = color.g;
-            material.color.b = color.b;
-          }
-
-          materials[object.material.name] = material;
-          index = _.keys(materials).length - 1;
+        for(var i = 0; i < object.geometry.faces.length; i++) {
+          var face = object.geometry.faces[i];
+          face.color = new THREE.Color(color);
         }
 
-        geometry.merge(object.geometry, object.matrix, index);
+        geometry.merge(object.geometry, object.matrix);
       }
     });
 
-    var material = new THREE.MeshFaceMaterial(_.values(materials));
+    var material = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: THREE.FaceColors });
     var mesh = new THREE.Mesh(geometry, material);
 
     return mesh;
@@ -48078,7 +48063,7 @@ var BuildingWorker = operative({
     var material, geometry, mesh;
 
     if(voxel.solid) {   
-      material = new THREE.MeshNormalMaterial({ wireframe: true });
+      material = new THREE.MeshBasicMaterial({ color: 0xFF1493, name: 'Debug' });
       geometry = new THREE.BoxGeometry(this.X, this.Y, this.Z);
       mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'debug';
@@ -48090,7 +48075,7 @@ var BuildingWorker = operative({
       this.group.add(mesh);
     }
     else if(voxel.y === 0) {
-      material = new THREE.MeshNormalMaterial({ wireframe: true });
+      material = new THREE.MeshBasicMaterial({ color: 0xFF1493, name: 'Debug' });
       geometry = new THREE.BoxGeometry(this.X, 0.0001, this.Z);
       mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'debug';
