@@ -29,13 +29,11 @@ gulp.task('apps', function(){
     .pipe(gulp.dest('./build/js/app'));
 });
 
-gulp.task('building', function(){ 
-  return gulp.src('./src/js/building/building.js')
+gulp.task('generators', function() {
+  return gulp.src('./src/js/generators/*.js')
     .pipe(plumber())
-    .pipe(browserify())
-    .pipe(gulp.dest('./build/js/app'));
+    .pipe(gulp.dest('./build/js/generators'));
 });
-
 
 gulp.task('libs', function() {
   var libs = [
@@ -107,6 +105,7 @@ gulp.task('build', function() {
     'css',
     'apps',
     'scripts',
+    'generators',
     'libs',
     'reload'
   );

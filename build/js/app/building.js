@@ -41627,22 +41627,25 @@ if (typeof exports !== 'undefined') {
 (function (global){
 'use strict';
 
-var _              = require('underscore');
-var THREE          = require('three');
-var Stats          = require('stats.js');
-var Dat            = require('dat-gui');
-var models         = require('../models');
-var BuildingWorker = require('../building/buildingWorker');
-var queue          = require('../util/queue');
+var _         = require('underscore');
+var THREE     = require('three');
+var Stats     = require('stats.js');
+var Dat       = require('dat-gui');
+var models    = require('../models');
+var queue     = require('../util/queue');
 
 global.THREE = THREE;
 
+var Building  = require('../generators/building');
+var Block     = require('../generators/block');
+
+global.Block = Block;
+global.Building = Building;
+
 require('../plugins/MTLLoader');
 require('../plugins/OBJMTLLoader');
-require('../plugins/ObjectLoader');
 require('../plugins/OrbitControls');
 
-var loader = new THREE.ObjectLoader();
 
 var scene = new THREE.Scene();
 var renderer = new THREE.WebGLRenderer();
@@ -41680,7 +41683,7 @@ scene.add(buildingGroup);
 
 models.load(function() {
 
-  BuildingWorker.setModels(_.mapObject(models.cache, function(model) {
+  Building.setModels(_.mapObject(models.cache, function(model) {
     return model.toJSON();
   }));
 
@@ -41717,9 +41720,7 @@ models.load(function() {
       buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
 
       var func = _.bind(function(cb) {
-        BuildingWorker.generate(options, function(err, json) {
-          var mesh = loader.parse(json);
-
+        Building.generate(options, function(err, mesh) {
           buildingGroup.add(mesh);
 
           cb();
@@ -41775,14 +41776,295 @@ var render = function () {
 
 render();
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../building/buildingWorker":12,"../models":13,"../plugins/MTLLoader":15,"../plugins/OBJMTLLoader":16,"../plugins/ObjectLoader":17,"../plugins/OrbitControls":18,"../util/queue":19,"dat-gui":1,"stats.js":8,"three":9,"underscore":10}],12:[function(require,module,exports){
+},{"../generators/block":12,"../generators/building":13,"../models":14,"../plugins/MTLLoader":16,"../plugins/OBJMTLLoader":17,"../plugins/OrbitControls":19,"../util/queue":20,"dat-gui":1,"stats.js":8,"three":9,"underscore":10}],12:[function(require,module,exports){
+/* global _ */
+/* global operative */
+/* global THREE */
+/* global SAT */
+'use strict';
+
+var Building = require('./building');
+
+var templates = {
+  standard: {
+    squareSize: 3,
+    depth: 4,
+    building: Building.templates.standard
+  }
+};
+
+var scripts = [
+  'js/lib/underscore.js',
+  'js/lib/three.js',
+  'js/lib/SAT.js',
+  'js/lib/ObjectLoader.js',
+];
+
+var worker = operative({
+
+  index: 0,
+
+  models: {},
+
+  setModels: function(models, callback) {
+    callback = callback || _.noop;
+
+    var loader = new THREE.ObjectLoader();
+
+    this.models = _.chain(models)
+      .mapObject(function(model) {
+        return loader.parse(model);
+      })
+      .value();
+
+    callback(null);
+  },
+
+  getGrid: function(points, options, callback) {
+    this.options = options;
+
+    var grid = [];
+
+    for(var i = 0; i < points.length; i++) {
+      var start = points[i];
+      var end = (i < points.length - 1) ? points[i + 1] : points[0];
+
+      start = new THREE.Vector3(start[0], 0, start[1]);
+      end = new THREE.Vector3(end[0], 0, end[1]);
+
+      var edgeGrid = this._getGridOnEdge(i, start, end);
+      grid.push(edgeGrid);
+    }
+
+    grid = _.flatten(grid);
+    grid = this._filterGridOutside(points, grid);
+    grid = this._filterGridOverlap(grid);
+
+    callback(null, grid);
+  },
+
+  _getGridOnEdge: function(edge, start, end) {
+    var grid = [];
+
+    var distance = start.distanceTo(end);
+    var normal = end.clone().sub(start).normalize();
+    var perpendicular = normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+    var angle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? 1 : -1));
+    var otherAngle = normal.angleTo(new THREE.Vector3(0, 0, (normal.x < 0) ? -1 : 1));
+
+    if(normal.x < 0) {
+      otherAngle -= Math.PI;
+    }
+
+    var squareSize = this.options.squareSize;
+    var depth = this.options.depth;
+
+    var halfSquare = squareSize / 2;
+    var widthStart = halfSquare;
+    var widthEnd = distance - widthStart * 2;
+    var depthStart = halfSquare;
+    var depthEnd = depth * squareSize + depthStart;
+
+    var column = 0;
+
+    for(var i = widthStart; i < widthEnd; i += squareSize) {
+      var row = 0;
+
+      for(var j = depthStart; j < depthEnd; j += squareSize) {
+
+        var position = start.clone()
+          .add(normal.setLength(i))
+          .add(perpendicular.setLength(j + 0.005));
+
+        var square = new SAT.Polygon(new SAT.Vector(0, 0), [
+          new SAT.Vector(-halfSquare, -halfSquare),
+          new SAT.Vector(+halfSquare, -halfSquare),
+          new SAT.Vector(+halfSquare, +halfSquare),
+          new SAT.Vector(-halfSquare, +halfSquare)
+        ]);
+
+        square.setOffset(new SAT.Vector(position.x, position.z));
+        square.rotate(angle);
+
+        square.a = otherAngle;
+
+        square.edge = edge;
+        square.row = row;
+        square.column = column;
+
+        grid.push(square);
+
+        row += 1;
+      }
+
+      column += 1;
+    }
+
+    return grid;
+  },
+
+  _filterGridOutside: function(points, grid) {
+    var newGrid = [];
+    var response = new SAT.Response();
+    var polygon = new SAT.Polygon(
+      new SAT.Vector(0, 0), 
+      _.map(points, function(point) { 
+        return new SAT.Vector(point[0], point[1]); 
+      })
+    );
+
+    for(var i = 0; i < grid.length; i++) {
+      var square = grid[i];
+
+      var collided = SAT.testPolygonPolygon(square, polygon, response);
+
+      if(collided && response.aInB) {
+        newGrid.push(square);
+      }
+
+      response.clear();
+    }
+
+    return newGrid;
+  },
+
+  _filterGridOverlap: function(grid) {
+    var removals = [];
+
+    for(var i = 0; i < grid.length - 1; i++) {
+      for(var j = i + 1; j < grid.length; j++) {
+        var square1 = grid[i];
+        var square2 = grid[j];
+
+        if(square1.edge === square2.edge) {
+          continue;
+        }
+
+        if(SAT.testPolygonPolygon(square1, square2)) {
+          if(square1.column >= square2.column) {
+            removals.push(i);
+          }
+          else {
+            removals.push(j);
+          }
+        }
+      }
+    }
+
+    removals = _.uniq(removals);
+    var newGrid = _.filter(grid, function(square, i) {
+      return !_.contains(removals, i);
+    });
+
+    return newGrid;
+  },
+
+  getSections: function(points, grid, callback) {
+    var filterEdge = function(edge) { 
+      return function(square) { return square.edge === edge; }; 
+    };
+    var filterColumn = function(column) { 
+      return function(square) { return square.column === column; }; 
+    };
+
+    var sections = [];
+
+    for(var i = 0; i < points.length; i++) {
+      var squares = _.filter(grid, filterEdge(i));
+      var columns = _.chain(squares).pluck('column').uniq().value();
+      var lastColumnSize = -1;
+      var section = null;
+
+      for(var j = 0; j < columns.length; j++) {
+        var column = _.filter(squares, filterColumn(columns[j]));
+
+        if(column.length !== lastColumnSize || section.length >= 7) {
+          if(section) {
+            sections.push(_.flatten(section));
+          }
+
+          section = [];
+        }
+
+        section.push(column);
+        lastColumnSize = column.length;
+      }
+
+      if(section) {
+        sections.push(_.flatten(section));
+      }
+    }
+
+    callback(null, sections);  
+  }
+}, scripts);
+
+var Block = {
+  templates: templates,
+
+  generate: function(points, options, callback) {
+    var settings = {};
+
+    settings = _.extend({}, templates.standard, _.omit(options, 'building'));
+    settings.building = _.extend({}, Building.templates.standard, options.building);
+
+    callback = callback || _.noop;
+
+    worker.getGrid(points, settings, function(err, grid) {
+      console.log(grid);
+    });
+
+    // worker.generate(options, callback);
+  },
+
+  setModels: function(models, callback) {
+    worker.setModels(models, callback);
+  },
+
+  getModels: function(callback) {
+    worker.getModels(callback);
+  }
+};
+
+module.exports = Block;
+},{"./building":13}],13:[function(require,module,exports){
 /* global _ */
 /* global operative */
 /* global THREE */
 /* global FastSimplexNoise */
-/* global Chance */
 
 'use strict';
+
+require('../plugins/ObjectLoader');
+
+var loader = new THREE.ObjectLoader();
+
+var templates = {
+  standard: {
+    width: 3,
+    height: 3,
+    depth: 3,
+
+    amplitude: 1,
+    frequency: 0.08,
+    octaves: 16,
+    persistence: 0.5,
+
+    heightDampener: 0.125,
+
+    solidChance: 0.65,
+    roofPointChance: 0.6,
+    wallWindowChance: 0.3,
+    wallDoorChance: 0.1,
+    bannerChance: 0.1,
+    shieldChance: 0.1,
+    fenceChance: 0.4,
+
+    seed: false,
+
+    debug: false
+  }
+};
 
 var scripts = [
   'js/lib/underscore.js',
@@ -41792,7 +42074,9 @@ var scripts = [
   'js/lib/seedrandom.js'
 ];
 
-var BuildingWorker = operative({
+var worker = operative({
+
+  index: 0,
 
   X: 3,
   Y: 2.5,
@@ -41811,44 +42095,15 @@ var BuildingWorker = operative({
 
   models: {},
 
-  index: 0,
-
-  templates: {
-    standard: {
-      width: 3,
-      height: 3,
-      depth: 3,
-
-      amplitude: 1,
-      frequency: 0.08,
-      octaves: 16,
-      persistence: 0.5,
-
-      heightDampener: 0.125,
-
-      solidChance: 0.65,
-      roofPointChance: 0.6,
-      wallWindowChance: 0.3,
-      wallDoorChance: 0.1,
-      bannerChance: 0.1,
-      shieldChance: 0.1,
-      fenceChance: 0.4,
-
-      seed: false,
-
-      debug: false
-    }
-  },
-
   generate: function(options, callback) {
     this.index += 1;
-    console.time('BuildingWorker.generate.' + this.index);
+    console.time('Building.generate.' + this.index);
 
-    this.options = _.defaults(options, this.templates.standard);
+    this.options = options;
     this.group = new THREE.Group();
 
     if(_.isEmpty(this.models)) {
-      return callback('no models available. use BuildingWorker.setModels()');
+      return callback('no models available. use Building.setModels()');
     }
 
     if(this.options.seed) {
@@ -41893,12 +42148,14 @@ var BuildingWorker = operative({
     var colors = this._getColors();
     var mesh = this._merge(colors);
 
-    console.timeEnd('BuildingWorker.generate.' + this.index);
+    console.timeEnd('Building.generate.' + this.index);
 
     callback(null, mesh.toJSON());
   },
 
-  setModels: function(models) {
+  setModels: function(models, callback) {
+    callback = callback || _.noop;
+
     var loader = new THREE.ObjectLoader();
 
     this.models = _.chain(models)
@@ -41906,6 +42163,12 @@ var BuildingWorker = operative({
         return loader.parse(model);
       })
       .value();
+
+    callback(null);
+  },
+
+  getModels: function(callback) {
+    callback(_.keys(this.models));
   },
 
   _setFloor: function(voxel) {
@@ -42257,8 +42520,33 @@ var BuildingWorker = operative({
 
 }, scripts);
 
-module.exports = BuildingWorker;
-},{}],13:[function(require,module,exports){
+var Building = {
+  templates: templates,
+
+  generate: function(options, callback) {
+    var settings = {};
+
+    settings = _.extend({}, templates.standard, options);
+    callback = callback || _.noop;
+
+    worker.generate(options, function(err, json) {
+      var mesh = loader.parse(json);
+
+      callback(null, mesh);
+    });
+  },
+
+  setModels: function(models, callback) {
+    worker.setModels(models, callback);
+  },
+
+  getModels: function(callback) {
+    worker.getModels(callback);
+  }
+};
+
+module.exports = Building;
+},{"../plugins/ObjectLoader":18}],14:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -42310,7 +42598,7 @@ exports.toJSON = function(objectName) {
 
 exports.cache = cache;
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./objects":14,"./plugins/MTLLoader":15,"./plugins/OBJMTLLoader":16,"nprogress":5,"three":9,"underscore":10}],14:[function(require,module,exports){
+},{"./objects":15,"./plugins/MTLLoader":16,"./plugins/OBJMTLLoader":17,"nprogress":5,"three":9,"underscore":10}],15:[function(require,module,exports){
 module.exports=[
   "Banner_01",
   "Banner_Short_01",
@@ -42384,7 +42672,7 @@ module.exports=[
   "Wood_Window_Square_01",
   "Wood_Window_Square_Sill_01"
 ]
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 (function (global){
 /**
  * Loads a Wavefront .mtl file specifying materials
@@ -42838,7 +43126,7 @@ THREE.MTLLoader.nextHighestPowerOfTwo_ = function( x ) {
 THREE.EventDispatcher.prototype.apply( THREE.MTLLoader.prototype );
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 /**
  * Loads a Wavefront .obj file with materials
  *
@@ -43204,7 +43492,7 @@ THREE.OBJMTLLoader.prototype = {
 };
 
 THREE.EventDispatcher.prototype.apply( THREE.OBJMTLLoader.prototype );
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -43745,7 +44033,7 @@ THREE.ObjectLoader.prototype = {
   }()
 
 };
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 /**
  * @author qiao / https://github.com/qiao
  * @author mrdoob / http://mrdoob.com
@@ -44452,7 +44740,7 @@ THREE.OrbitControls = function ( object, domElement ) {
 
 THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
 THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 (function (global){
 'use strict';
 

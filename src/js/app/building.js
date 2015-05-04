@@ -1,21 +1,24 @@
 'use strict';
 
-var _              = require('underscore');
-var THREE          = require('three');
-var Stats          = require('stats.js');
-var Dat            = require('dat-gui');
-var models         = require('../models');
-var BuildingWorker = require('../building/buildingWorker');
-var queue          = require('../util/queue');
+var _         = require('underscore');
+var THREE     = require('three');
+var Stats     = require('stats.js');
+var Dat       = require('dat-gui');
+var models    = require('../models');
+var queue     = require('../util/queue');
 
 global.THREE = THREE;
 
+var Building  = require('../generators/building');
+var Block     = require('../generators/block');
+
+global.Block = Block;
+global.Building = Building;
+
 require('../plugins/MTLLoader');
 require('../plugins/OBJMTLLoader');
-require('../plugins/ObjectLoader');
 require('../plugins/OrbitControls');
 
-var loader = new THREE.ObjectLoader();
 
 var scene = new THREE.Scene();
 var renderer = new THREE.WebGLRenderer();
@@ -53,7 +56,7 @@ scene.add(buildingGroup);
 
 models.load(function() {
 
-  BuildingWorker.setModels(_.mapObject(models.cache, function(model) {
+  Building.setModels(_.mapObject(models.cache, function(model) {
     return model.toJSON();
   }));
 
@@ -90,9 +93,7 @@ models.load(function() {
       buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
 
       var func = _.bind(function(cb) {
-        BuildingWorker.generate(options, function(err, json) {
-          var mesh = loader.parse(json);
-
+        Building.generate(options, function(err, mesh) {
           buildingGroup.add(mesh);
 
           cb();
