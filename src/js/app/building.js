@@ -96,15 +96,21 @@ models.load(function() {
     shieldChance: 0.1,
     fenceChance: 0.4,
 
+    seed: 0,
+
     debug: false,
 
-    generate: function() {
-      var options = _.omit(building, 'generate');
+    randomSeed: function() {
+      building.seed = Math.round(Math.random() * 10000);
+    },
 
+    generate: function() {
+      var options = _.omit(building, 'generate', 'randomSeed');
+
+      buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
       BuildingWorker.generate(options, buildingModels, function(err, json) {
         var mesh = loader.parse(json);
 
-        buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
         buildingGroup.add(mesh);
       });
     } 
@@ -129,11 +135,11 @@ models.load(function() {
   gui.add(building, 'shieldChance').min(0).max(1);
   gui.add(building, 'fenceChance').min(0).max(1);
 
-  // gui.add(building, 'seed').min(0).max(10000).listen();
+  gui.add(building, 'seed').min(0).max(10000).step(1).listen();
 
   gui.add(building, 'debug');
 
-//   gui.add(building, 'generateRandomSeed');
+  gui.add(building, 'randomSeed');
   gui.add(building, 'generate');
 });
 

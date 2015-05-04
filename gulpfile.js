@@ -44,6 +44,7 @@ gulp.task('libs', function() {
     './node_modules/three/three.js',
     './node_modules/sat/SAT.js',
     './node_modules/fast-simplex-noise/fast-simplex-noise.js',
+    './node_modules/seedrandom/seedrandom.js',
     './src/js/plugins/ObjectLoader.js'
   ];
 

@@ -47217,15 +47217,21 @@ models.load(function() {
     shieldChance: 0.1,
     fenceChance: 0.4,
 
+    seed: 0,
+
     debug: false,
 
-    generate: function() {
-      var options = _.omit(building, 'generate');
+    randomSeed: function() {
+      building.seed = Math.round(Math.random() * 10000);
+    },
 
+    generate: function() {
+      var options = _.omit(building, 'generate', 'randomSeed');
+
+      buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
       BuildingWorker.generate(options, buildingModels, function(err, json) {
         var mesh = loader.parse(json);
 
-        buildingGroup.remove.apply(buildingGroup, buildingGroup.children);
         buildingGroup.add(mesh);
       });
     } 
@@ -47250,11 +47256,11 @@ models.load(function() {
   gui.add(building, 'shieldChance').min(0).max(1);
   gui.add(building, 'fenceChance').min(0).max(1);
 
-  // gui.add(building, 'seed').min(0).max(10000).listen();
+  gui.add(building, 'seed').min(0).max(10000).step(1).listen();
 
   gui.add(building, 'debug');
 
-//   gui.add(building, 'generateRandomSeed');
+  gui.add(building, 'randomSeed');
   gui.add(building, 'generate');
 });
 
@@ -47715,6 +47721,7 @@ module.exports = Building;
 /* global operative */
 /* global THREE */
 /* global FastSimplexNoise */
+/* global Chance */
 
 'use strict';
 
@@ -47722,7 +47729,8 @@ var scripts = [
   'js/lib/underscore.js',
   'js/lib/three.js',
   'js/lib/ObjectLoader.js',
-  'js/lib/fast-simplex-noise.js'
+  'js/lib/fast-simplex-noise.js',
+  'js/lib/seedrandom.js'
 ];
 
 var BuildingWorker = operative({
@@ -47765,6 +47773,8 @@ var BuildingWorker = operative({
       shieldChance: 0.1,
       fenceChance: 0.4,
 
+      seed: false,
+
       debug: false
     }
   },
@@ -47775,7 +47785,13 @@ var BuildingWorker = operative({
 
     this.options = _.defaults(options, this.templates.standard);
     this.group = new THREE.Group();
-    this.rng = Math.random;
+
+    if(this.options.seed) {
+      this.rng = new Math.seedrandom(this.options.seed);
+    }
+    else {
+      this.rng = Math.random;
+    }
 
     var loader = new THREE.ObjectLoader();
 
@@ -47789,7 +47805,8 @@ var BuildingWorker = operative({
       frequency: this.options.frequency, 
       octaves: this.options.octaves,
       amplitude: this.options.amplitude,
-      persistence: this.options.persistence
+      persistence: this.options.persistence,
+      random: this.rng
     });
 
     var hasFence = this.rng() < this.options.fenceChance;
@@ -47847,8 +47864,16 @@ var BuildingWorker = operative({
       [voxel.east, 0, 1, Math.PI / -2]
     ];
 
+    var types = [
+      'Wood_Wall_01', 
+      'Wood_Wall_Double_Cross_01', 
+      'Wood_Wall_Cross_01'
+    ];
+
     for(var i = 0; i < sides.length; i++) {
       var side = sides[i];
+
+      console.log(this.rng());
 
       if(!side[0]) {
         if(voxel.y === 0 && this.rng() < this.options.wallDoorChance) {
@@ -47859,11 +47884,8 @@ var BuildingWorker = operative({
         }
         else {
 
-          type = _.sample([
-            'Wood_Wall_01', 
-            'Wood_Wall_Double_Cross_01', 
-            'Wood_Wall_Cross_01'
-          ]);
+          type = types[Math.floor(this.rng() * types.length)];
+
           wall = this.models[type].clone();
 
           if(type === 'Wood_Wall_01' && this.rng() < this.options.bannerChance) {
@@ -48022,9 +48044,9 @@ var BuildingWorker = operative({
   },
 
   _getColors: function() {
-    return _.chain(this.colors)
-      .mapObject(function(colors) { return _.sample(colors); })
-      .value();
+    return _.mapObject(this.colors, function(colors) {
+      return colors[Math.floor(this.rng() * colors.length)];
+    }, this);
   },
 
   _merge: function(colors) {
