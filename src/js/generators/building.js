@@ -30,7 +30,7 @@ var templates = {
     shieldChance: 0.1,
     fenceChance: 0.4,
 
-    seed: false,
+    seed: 0,
 
     debug: false
   }

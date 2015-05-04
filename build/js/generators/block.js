@@ -5,11 +5,22 @@
 'use strict';
 
 var Building = require('./building');
+var async = require('async');
+
+require('../plugins/ObjectLoader');
+
+var loader = new THREE.ObjectLoader();
 
 var templates = {
   standard: {
     squareSize: 3,
     depth: 4,
+    
+    debug: true,
+    debugPolygon: true,
+    debugGrid: true,
+    debugSections: true,
+
     building: Building.templates.standard
   }
 };
@@ -180,7 +191,7 @@ var worker = operative({
     return newGrid;
   },
 
-  getSections: function(points, grid, callback) {
+  getSections: function(points, grid, options, callback) {
     var filterEdge = function(edge) { 
       return function(square) { return square.edge === edge; }; 
     };
@@ -188,36 +199,164 @@ var worker = operative({
       return function(square) { return square.column === column; }; 
     };
 
+    var groups = [];
     var sections = [];
 
     for(var i = 0; i < points.length; i++) {
       var squares = _.filter(grid, filterEdge(i));
       var columns = _.chain(squares).pluck('column').uniq().value();
       var lastColumnSize = -1;
-      var section = null;
+      var group = null;
 
       for(var j = 0; j < columns.length; j++) {
         var column = _.filter(squares, filterColumn(columns[j]));
 
-        if(column.length !== lastColumnSize || section.length >= 7) {
-          if(section) {
-            sections.push(_.flatten(section));
+        if(column.length !== lastColumnSize || group.length >= 7) {
+          if(group) {
+            groups.push(_.flatten(group));
           }
 
-          section = [];
+          group = [];
         }
 
-        section.push(column);
+        group.push(column);
         lastColumnSize = column.length;
       }
 
-      if(section) {
-        sections.push(_.flatten(section));
+      if(group) {
+        groups.push(_.flatten(group));
       }
     }
 
+    for(var i = 0; i < groups.length; i++) {
+      var group = groups[i];
+      var columns = _.chain(group).pluck('column').uniq().value().length;
+      var rows = _.chain(group).pluck('row').uniq().value().length;
+
+      var minX = Number.MAX_SAFE_INTEGER;
+      var maxX = Number.MIN_SAFE_INTEGER;
+      var minY = Number.MAX_SAFE_INTEGER;
+      var maxY = Number.MIN_SAFE_INTEGER;
+
+      var section= { 
+        x: 0, 
+        y: 0,
+        width: rows * options.squareSize,
+        depth: columns * options.squareSize,
+        angle: group[0].a
+      };
+
+      for(var j = 0; j < group.length; j++) {
+        var pos = group[j].offset;
+
+        if(pos.x < minX) {
+          minX = pos.x;
+        }
+        if(pos.x > maxX) {
+          maxX = pos.x;
+        }
+        if(pos.y < minY) {
+          minY = pos.y;
+        }
+        if(pos.y > maxY) {
+          maxY = pos.y;
+        }
+      }
+
+      section.x = (minX + maxX) / 2;
+      section.y = (minY + maxY) / 2;
+
+      sections.push(section);
+    }
+
     callback(null, sections);  
-  }
+  },
+
+  debug: function(points, grid, sections, options, callback) {
+    var group = new THREE.Group();
+
+    if(options.debugPolygon) {
+      group.add(this._debugPolygon(points));
+    }
+    if(options.debugGrid) {
+      group.add(this._debugGrid(grid));
+    }
+    if(options.debugSections) {
+      group.add(this._debugSections(sections, options));
+    }
+
+    group.updateMatrixWorld();
+
+    callback(null, group.toJSON());
+  },
+
+  _debugPolygon: function(points) {
+    var i;
+    var geometry = new THREE.Geometry();
+    var material = new THREE.MeshBasicMaterial({ color: 0xFF1493, wireframe: true, name: 'Debug' });
+    var mesh = new THREE.Mesh(geometry, material);
+
+    for(i = 0; i < points.length; i++) {
+      geometry.vertices.push(new THREE.Vector3(points[i][0], 0, points[i][1]));
+    }
+
+    for(i = 0; i < points.length - 2; i++) {
+      var face = new THREE.Face3(0, i + 1, i + 2);
+      face.normal.z = 1;
+      geometry.faces.push(face);
+    }
+
+    return mesh;
+  },
+
+  _debugGrid: function(grid) {
+
+    var group = new THREE.Group();
+    var material = new THREE.MeshBasicMaterial({ color: 0xFF1493, wireframe: true, name: 'Debug' });
+
+    for(var j = 0; j < grid.length; j++) {
+      var square = grid[j];
+
+      var geometry = new THREE.Geometry();
+      geometry.vertices.push(new THREE.Vector3(square.calcPoints[0].x, 0, square.calcPoints[0].y));
+      geometry.vertices.push(new THREE.Vector3(square.calcPoints[1].x, 0, square.calcPoints[1].y));
+      geometry.vertices.push(new THREE.Vector3(square.calcPoints[2].x, 0, square.calcPoints[2].y));
+      geometry.vertices.push(new THREE.Vector3(square.calcPoints[3].x, 0, square.calcPoints[3].y));
+
+      geometry.faces.push(new THREE.Face3(0, 1, 2));
+      geometry.faces.push(new THREE.Face3(0, 2, 3));
+
+      geometry.faces[0].normal = new THREE.Vector3(0, 1, 0);
+      geometry.faces[1].normal = new THREE.Vector3(0, 1, 0);
+
+      var mesh = new THREE.Mesh(geometry, material);
+      group.add(mesh);
+    }
+
+    return group;
+  },
+
+  _debugSections: function(sections, options) {
+
+    var group = new THREE.Group();
+    var material = new THREE.MeshBasicMaterial({ color: 0x0000ff, wireframe: true, name: 'Debug' });
+
+    for(var i = 0; i < sections.length; i++) {
+      var section = sections[i];
+
+      var geometry = new THREE.BoxGeometry(section.width, 0.0001, section.depth);
+      var mesh = new THREE.Mesh(geometry, material);
+      
+      mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section.angle);
+
+      mesh.position.x = section.x;
+      mesh.position.z = section.y;
+      
+      group.add(mesh);
+    }
+
+    return group;
+  },
 }, scripts);
 
 var Block = {
@@ -231,8 +370,36 @@ var Block = {
 
     callback = callback || _.noop;
 
-    worker.getGrid(points, settings, function(err, grid) {
-      console.log(grid);
+    var result = {};
+    var saveResult = function(key, cb) {
+      return function(err, value) {
+        result[key] = value;
+        cb(err, value);
+      };
+    };
+
+    async.series({
+      
+      grid: function(cb) {
+        worker.getGrid(points, settings, saveResult('grid', cb));
+      },
+
+      sections: function(cb) {
+        worker.getSections(points, result.grid, settings, saveResult('sections', cb));
+      },
+
+      debug: function(cb) {
+        worker.debug(points, result.grid, result.sections, settings, cb);
+      }
+
+    }, function(err, result) {
+      var group = new THREE.Group();
+      
+      var debugMesh = loader.parse(result.debug);
+
+      group.add(debugMesh);
+
+      callback(null, group);
     });
 
     // worker.generate(options, callback);
