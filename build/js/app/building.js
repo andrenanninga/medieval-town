@@ -42979,10 +42979,9 @@ var templates = {
     squareSize: 3,
     depth: 4,
     
-    debug: true,
-    debugPolygon: true,
-    debugGrid: true,
-    debugSections: true,
+    debugPolygon: false,
+    debugGrid: false,
+    debugSections: false,
 
     building: Building.templates.standard
   }
@@ -43136,7 +43135,7 @@ var worker = operative({
         }
 
         if(SAT.testPolygonPolygon(square1, square2)) {
-          if(square1.column >= square2.column) {
+          if(square1.depth >= square2.depth) {
             removals.push(i);
           }
           else {
@@ -43161,20 +43160,31 @@ var worker = operative({
     var filterColumn = function(column) { 
       return function(square) { return square.column === column; }; 
     };
+    var reduceConsecutive = function(memo, column) {
+      if(memo.length === 0) {
+        memo.push(column);
+      }
+      else if(memo[memo.length - 1].row + 1 === column.row) {
+        memo.push(column);
+      }
+
+      return memo;
+    };
 
     var groups = [];
     var sections = [];
 
     for(var i = 0; i < points.length; i++) {
       var squares = _.filter(grid, filterEdge(i));
-      var columns = _.chain(squares).pluck('column').uniq().value();
+      var columns = _.chain(squares).pluck('column').uniq().sortBy().value();
       var lastColumnSize = -1;
       var group = null;
 
       for(var j = 0; j < columns.length; j++) {
         var column = _.filter(squares, filterColumn(columns[j]));
+        column = _.reduce(column, reduceConsecutive, []);
 
-        if(column.length !== lastColumnSize || group.length >= 7) {
+        if(column.length !== lastColumnSize || group.length >= 5) {
           if(group) {
             groups.push(_.flatten(group));
           }
@@ -43327,6 +43337,7 @@ var Block = {
 
   generate: function(points, options, callback) {
     var settings = {};
+    var group = new THREE.Group();
 
     settings = _.extend({}, templates.standard, _.omit(options, 'building'));
     settings.building = _.extend({}, Building.templates.standard, options.building);
@@ -43352,20 +43363,42 @@ var Block = {
       },
 
       debug: function(cb) {
-        worker.debug(points, result.grid, result.sections, settings, cb);
+        worker.debug(points, result.grid, result.sections, settings, function(err, json) {
+          var mesh = loader.parse(json);
+          group.add(mesh);
+
+          cb(err);
+        });
+      },
+
+      buldings: function(cb) {
+        var queue = async.queue(function(section, callback) {
+          var options = settings.building;
+
+          options.width = section.width / settings.squareSize;
+          options.depth = section.depth / settings.squareSize;
+
+          Building.generate(options, function(err, mesh) {
+            mesh.position.x = section.x;
+            mesh.position.z = section.y;
+
+            mesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), section.angle);
+
+            callback(null, mesh);
+          });
+        });
+
+        queue.drain = cb;
+
+        queue.push(result.sections, function(err, mesh) {
+          group.add(mesh);
+        });
+
       }
 
-    }, function(err, result) {
-      var group = new THREE.Group();
-      
-      var debugMesh = loader.parse(result.debug);
-
-      group.add(debugMesh);
-
+    }, function() {
       callback(null, group);
     });
-
-    // worker.generate(options, callback);
   },
 
   setModels: function(models, callback) {
@@ -43447,9 +43480,6 @@ var worker = operative({
   models: {},
 
   generate: function(options, callback) {
-    this.index += 1;
-    console.time('Building.generate.' + this.index);
-
     this.options = options;
     this.group = new THREE.Group();
 
@@ -43498,8 +43528,6 @@ var worker = operative({
 
     var colors = this._getColors();
     var mesh = this._merge(colors);
-
-    console.timeEnd('Building.generate.' + this.index);
 
     callback(null, mesh.toJSON());
   },

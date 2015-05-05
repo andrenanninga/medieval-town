@@ -66,9 +66,6 @@ var worker = operative({
   models: {},
 
   generate: function(options, callback) {
-    this.index += 1;
-    console.time('Building.generate.' + this.index);
-
     this.options = options;
     this.group = new THREE.Group();
 
@@ -117,8 +114,6 @@ var worker = operative({
 
     var colors = this._getColors();
     var mesh = this._merge(colors);
-
-    console.timeEnd('Building.generate.' + this.index);
 
     callback(null, mesh.toJSON());
   },

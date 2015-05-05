@@ -73,7 +73,6 @@ models.load(function() {
   gui.add(block.options, 'squareSize').min(1).max(10).step(1);
   gui.add(block.options, 'depth').min(1).max(25).step(1);
 
-  gui.add(block.options, 'debug');
   gui.add(block.options, 'debugPolygon');
   gui.add(block.options, 'debugGrid');
   gui.add(block.options, 'debugSections');
