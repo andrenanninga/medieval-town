@@ -51,9 +51,34 @@ models.load(function() {
 
   gui.add(town.options, 'seed').min(0).max(10000).step(1).listen();
 
-  gui.add(town.options.block, 'debugPolygon');
-  gui.add(town.options.block, 'debugGrid');
-  gui.add(town.options.block, 'debugSections');
+  var blockFolder = gui.addFolder('Block');
+  blockFolder.add(town.options.block, 'squareSize').min(1).max(10).step(1);
+  blockFolder.add(town.options.block, 'depth').min(1).max(25).step(1);
+
+  blockFolder.add(town.options.block, 'seed').min(0).max(10000).step(1).listen();
+
+  blockFolder.add(town.options.block, 'debugPolygon');
+  blockFolder.add(town.options.block, 'debugGrid');
+  blockFolder.add(town.options.block, 'debugSections');
+
+  var buildingFolder = gui.addFolder('Building');
+  buildingFolder.add(town.options.block.building, 'amplitude').min(0.02).max(1).step(0.02);
+  buildingFolder.add(town.options.block.building, 'frequency').min(0.02).max(1).step(0.02);
+  buildingFolder.add(town.options.block.building, 'octaves').min(1).max(64).step(1);
+  buildingFolder.add(town.options.block.building, 'persistence').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'heightDampener').min(0).max(1);
+  
+  buildingFolder.add(town.options.block.building, 'height').min(1).max(15).step(1);
+
+  buildingFolder.add(town.options.block.building, 'solidChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'roofPointChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'wallDoorChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'wallWindowChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'bannerChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'shieldChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'fenceChance').min(0).max(1);
+
+  buildingFolder.add(town.options.block.building, 'debug');
 
   gui.add(town, 'randomSeed');
   gui.add(town, 'generate');

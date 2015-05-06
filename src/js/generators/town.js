@@ -1,16 +1,17 @@
 'use strict';
 
-var _       = require('underscore');
-var Block   = require('./block');
-var Voronoi = require('voronoi');
-var Polygon = require('polygon');
-var Chance  = require('chance');
-var THREE   = require('three');
+var _        = require('underscore');
+var Block    = require('./block');
+var Building = require('./building');
+var Voronoi  = require('voronoi');
+var Polygon  = require('polygon');
+var Chance   = require('chance');
+var THREE    = require('three');
 
 var templates = {
   standard: {
-    width: 200,
-    depth: 200,
+    width: 100,
+    depth: 100,
     blocks: 10,
 
     seed: 0,
@@ -29,7 +30,8 @@ var Town = {
     var group = new THREE.Group();
 
     settings = _.extend({}, templates.standard, _.omit(options, 'block'));
-    settings.block = _.extend({}, Block.templates.standard, options.block);
+    settings.block = _.extend({}, Block.templates.standard, _.omit(options.block, 'building'));
+    settings.block.building = _.extend({}, Building.templates.standard, options.block.building);
     settings.block.seed = settings.seed;
 
     callback = callback || _.noop;

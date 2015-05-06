@@ -88,6 +88,25 @@ models.load(function() {
   gui.add(block.options, 'debugGrid');
   gui.add(block.options, 'debugSections');
 
+  var buildingFolder = gui.addFolder('Building');
+  buildingFolder.add(block.options.building, 'amplitude').min(0.02).max(1).step(0.02);
+  buildingFolder.add(block.options.building, 'frequency').min(0.02).max(1).step(0.02);
+  buildingFolder.add(block.options.building, 'octaves').min(1).max(64).step(1);
+  buildingFolder.add(block.options.building, 'persistence').min(0).max(1);
+  buildingFolder.add(block.options.building, 'heightDampener').min(0).max(1);
+  
+  buildingFolder.add(block.options.building, 'height').min(1).max(15).step(1);
+
+  buildingFolder.add(block.options.building, 'solidChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'roofPointChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'wallDoorChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'wallWindowChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'bannerChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'shieldChance').min(0).max(1);
+  buildingFolder.add(block.options.building, 'fenceChance').min(0).max(1);
+
+  buildingFolder.add(block.options.building, 'debug');
+
   gui.add(block, 'randomSeed');
   gui.add(block, 'generate');
 });

@@ -60,11 +60,12 @@ gulp.task('watch', function() {
   gulp.watch('src/**/*.*', ['build']);
 });
 
-gulp.task('assets', function() {
-  return runSequence(
+gulp.task('assets', function(callback) {
+  runSequence(
     'copy-assets',
     'clean-models-mtl',
-    'clean-models-obj'
+    'clean-models-obj',
+    callback
   );
 });
 
@@ -86,16 +87,17 @@ gulp.task('clean-models-obj', function() {
     .pipe(gulp.dest('./'));
 });
 
-gulp.task('build', function() {
-  return runSequence(
+gulp.task('build', function(callback) {
+  runSequence(
     'html',
     'css',
     'apps',
-    'reload'
+    'reload',
+    callback
   );
 });
 
-gulp.task('deploy', ['assets', 'libs', 'build'], function() {
+gulp.task('deploy', ['assets', 'build', 'libs'], function() {
   return gulp.src('./build/**/*')
     .pipe(ghPages());
 });
