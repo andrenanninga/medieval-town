@@ -15,24 +15,11 @@ gulp.task('webserver', function() {
   });
 });
 
-gulp.task('scripts', function() {
-  return gulp.src('./src/js/app.js')
-    .pipe(plumber())
-    .pipe(browserify())
-    .pipe(gulp.dest('./build/js'));
-});
-
 gulp.task('apps', function(){ 
   return gulp.src('./src/js/app/*.js')
     .pipe(plumber())
     .pipe(browserify())
     .pipe(gulp.dest('./build/js/app'));
-});
-
-gulp.task('generators', function() {
-  return gulp.src('./src/js/generators/*.js')
-    .pipe(plumber())
-    .pipe(gulp.dest('./build/js/generators'));
 });
 
 gulp.task('libs', function() {
@@ -104,16 +91,13 @@ gulp.task('build', function() {
     'html',
     'css',
     'apps',
-    'scripts',
-    'generators',
-    'libs',
     'reload'
   );
 });
 
-gulp.task('deploy', ['assets', 'build'], function() {
+gulp.task('deploy', ['assets', 'libs', 'build'], function() {
   return gulp.src('./build/**/*')
     .pipe(ghPages());
 });
 
-gulp.task('default', ['assets', 'build', 'webserver', 'watch']);
+gulp.task('default', ['assets', 'libs', 'build', 'webserver', 'watch']);

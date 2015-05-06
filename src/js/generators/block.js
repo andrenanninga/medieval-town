@@ -1,13 +1,14 @@
-/* global _ */
 /* global operative */
 /* global THREE */
 /* global SAT */
 'use strict';
 
+var _ = require('underscore');
 var Building = require('./building');
 var async = require('async');
 
 require('../plugins/ObjectLoader');
+require('seedrandom');
 
 var loader = new THREE.ObjectLoader();
 
@@ -16,6 +17,8 @@ var templates = {
     squareSize: 3,
     depth: 4,
     
+    seed: 0,
+
     debugPolygon: false,
     debugGrid: false,
     debugSections: false,
@@ -29,6 +32,7 @@ var scripts = [
   'js/lib/three.js',
   'js/lib/SAT.js',
   'js/lib/ObjectLoader.js',
+  'js/lib/seedrandom.js'
 ];
 
 var worker = operative({
@@ -49,6 +53,19 @@ var worker = operative({
       .value();
 
     callback(null);
+  },
+
+  rng: function() {
+    if(!this._rng) {
+      if(this.options.seed) {
+        this._rng = new Math.seedrandom(this.options.seed);
+      }
+      else {
+        this._rng = Math.random;
+      }
+    }
+
+    return this._rng();
   },
 
   getGrid: function(points, options, callback) {
@@ -172,7 +189,7 @@ var worker = operative({
         }
 
         if(SAT.testPolygonPolygon(square1, square2)) {
-          if(square1.depth >= square2.depth) {
+          if(square1.row >= square2.row) {
             removals.push(i);
           }
           else {
@@ -373,6 +390,7 @@ var Block = {
   templates: templates,
 
   generate: function(points, options, callback) {
+    var rng;
     var settings = {};
     var group = new THREE.Group();
 
@@ -380,6 +398,13 @@ var Block = {
     settings.building = _.extend({}, Building.templates.standard, options.building);
 
     callback = callback || _.noop;
+
+    if(settings.seed) {
+      rng = new Math.seedrandom(settings.seed);
+    }
+    else {
+      rng = Math.random;
+    }
 
     var result = {};
     var saveResult = function(key, cb) {
@@ -414,6 +439,7 @@ var Block = {
 
           options.width = section.width / settings.squareSize;
           options.depth = section.depth / settings.squareSize;
+          options.seed = rng();
 
           Building.generate(options, function(err, mesh) {
             mesh.position.x = section.x;
@@ -434,8 +460,10 @@ var Block = {
       }
 
     }, function() {
-      callback(null, group);
+      callback(null, true);
     });
+
+    return group;
   },
 
   setModels: function(models, callback) {

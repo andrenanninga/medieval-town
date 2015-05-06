@@ -28,7 +28,7 @@ controls.damping = 0.2;
 var stats = new Stats();
 stats.domElement.style.position = 'absolute';
 stats.domElement.style.left = '0px';
-stats.domElement.style.top = '0px';
+stats.domElement.style.bottom = '0px';
 document.body.appendChild(stats.domElement);
 
 var light = new THREE.AmbientLight(0x222222);

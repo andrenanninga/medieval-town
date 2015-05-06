@@ -30,7 +30,16 @@ models.load(function() {
     options: Block.templates.standard,
     points: [],
 
-    randomPolygon: function() {
+    _randomPolygon: function() {
+      var chance;
+
+      if(block.options.seed) {
+        chance = new Chance(block.options.seed);
+      }
+      else {
+        chance = new Chance();
+      }
+
       var angles = [];
       var radius = chance.floating({ min: 20, max: 50 });
       var n = chance.integer({ min: 3, max: 8 });
@@ -58,26 +67,27 @@ models.load(function() {
     },
 
     generate: function() {
+      block._randomPolygon();
       blockGroup.remove.apply(blockGroup, blockGroup.children);
 
-      Block.generate(block.points, block.options, function(err, mesh) {
-        blockGroup.add(mesh);
-      });
+      var group = Block.generate(block.points, block.options);
+
+      blockGroup.add(group);
 
     } 
   };
 
-  block.randomPolygon();
 
   var gui = new Dat.GUI();
   gui.add(block.options, 'squareSize').min(1).max(10).step(1);
   gui.add(block.options, 'depth').min(1).max(25).step(1);
 
+  gui.add(block.options, 'seed').min(0).max(10000).step(1).listen();
+
   gui.add(block.options, 'debugPolygon');
   gui.add(block.options, 'debugGrid');
   gui.add(block.options, 'debugSections');
 
-  gui.add(block, 'randomPolygon');
   gui.add(block, 'randomSeed');
   gui.add(block, 'generate');
 });
