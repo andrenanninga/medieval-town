@@ -52920,9 +52920,34 @@ models.load(function() {
 
   gui.add(town.options, 'seed').min(0).max(10000).step(1).listen();
 
-  gui.add(town.options.block, 'debugPolygon');
-  gui.add(town.options.block, 'debugGrid');
-  gui.add(town.options.block, 'debugSections');
+  var blockFolder = gui.addFolder('Block');
+  blockFolder.add(town.options.block, 'squareSize').min(1).max(10).step(1);
+  blockFolder.add(town.options.block, 'depth').min(1).max(25).step(1);
+
+  blockFolder.add(town.options.block, 'seed').min(0).max(10000).step(1).listen();
+
+  blockFolder.add(town.options.block, 'debugPolygon');
+  blockFolder.add(town.options.block, 'debugGrid');
+  blockFolder.add(town.options.block, 'debugSections');
+
+  var buildingFolder = gui.addFolder('Building');
+  buildingFolder.add(town.options.block.building, 'amplitude').min(0.02).max(1).step(0.02);
+  buildingFolder.add(town.options.block.building, 'frequency').min(0.02).max(1).step(0.02);
+  buildingFolder.add(town.options.block.building, 'octaves').min(1).max(64).step(1);
+  buildingFolder.add(town.options.block.building, 'persistence').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'heightDampener').min(0).max(1);
+  
+  buildingFolder.add(town.options.block.building, 'height').min(1).max(15).step(1);
+
+  buildingFolder.add(town.options.block.building, 'solidChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'roofPointChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'wallDoorChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'wallWindowChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'bannerChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'shieldChance').min(0).max(1);
+  buildingFolder.add(town.options.block.building, 'fenceChance').min(0).max(1);
+
+  buildingFolder.add(town.options.block.building, 'debug');
 
   gui.add(town, 'randomSeed');
   gui.add(town, 'generate');
@@ -53926,17 +53951,18 @@ module.exports = Building;
 },{"../plugins/ObjectLoader":50}],45:[function(require,module,exports){
 'use strict';
 
-var _       = require('underscore');
-var Block   = require('./block');
-var Voronoi = require('voronoi');
-var Polygon = require('polygon');
-var Chance  = require('chance');
-var THREE   = require('three');
+var _        = require('underscore');
+var Block    = require('./block');
+var Building = require('./building');
+var Voronoi  = require('voronoi');
+var Polygon  = require('polygon');
+var Chance   = require('chance');
+var THREE    = require('three');
 
 var templates = {
   standard: {
-    width: 200,
-    depth: 200,
+    width: 100,
+    depth: 100,
     blocks: 10,
 
     seed: 0,
@@ -53955,7 +53981,8 @@ var Town = {
     var group = new THREE.Group();
 
     settings = _.extend({}, templates.standard, _.omit(options, 'block'));
-    settings.block = _.extend({}, Block.templates.standard, options.block);
+    settings.block = _.extend({}, Block.templates.standard, _.omit(options.block, 'building'));
+    settings.block.building = _.extend({}, Building.templates.standard, options.block.building);
     settings.block.seed = settings.seed;
 
     callback = callback || _.noop;
@@ -54025,7 +54052,7 @@ var Town = {
 };
 
 module.exports = Town;
-},{"./block":43,"chance":2,"polygon":33,"three":38,"underscore":39,"voronoi":40}],46:[function(require,module,exports){
+},{"./block":43,"./building":44,"chance":2,"polygon":33,"three":38,"underscore":39,"voronoi":40}],46:[function(require,module,exports){
 (function (global){
 'use strict';
 
