@@ -16,7 +16,7 @@ gulp.task('webserver', function() {
 });
 
 gulp.task('apps', function(){ 
-  return gulp.src('./src/js/app/*.js')
+  return gulp.src('./src/js/app/app.js')
     .pipe(plumber())
     .pipe(browserify())
     .pipe(gulp.dest('./build/js/app'));
